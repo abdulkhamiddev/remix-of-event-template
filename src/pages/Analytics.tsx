@@ -158,34 +158,44 @@ const Analytics: React.FC = () => {
     });
   }, [filteredTasks, timeFilter, dateRange]);
 
-  const productiveDays = useMemo(() => {
-    const dayStats: Record<number, { total: number; completed: number }> = {};
-
-    for (let i = 0; i < 7; i++) {
-      dayStats[i] = { total: 0, completed: 0 };
+  const productivePeriods = useMemo(() => {
+    if (timeFilter === 'yearly') {
+      const months = eachMonthOfInterval(dateRange);
+      return months.map((monthStart) => {
+        const monthEnd = endOfMonth(monthStart);
+        const monthTasks = filteredTasks.filter((task) => {
+          const d = parseISO(task.scheduledDate);
+          return isWithinInterval(d, { start: monthStart, end: monthEnd });
+        });
+        const completed = monthTasks.filter((t) => t.status === 'completed').length;
+        const total = monthTasks.length;
+        return {
+          label: format(monthStart, 'MMM'),
+          completed,
+          total,
+          rate: total > 0 ? Math.round((completed / total) * 100) : 0,
+        };
+      });
     }
 
-    filteredTasks.forEach((task) => {
-      const day = parseISO(task.scheduledDate).getDay();
-      dayStats[day].total++;
-      if (task.status === 'completed') {
-        dayStats[day].completed++;
-      }
+    const days = eachDayOfInterval(dateRange);
+    return days.map((day) => {
+      const key = format(day, 'yyyy-MM-dd');
+      const dayTasks = filteredTasks.filter((t) => t.scheduledDate === key);
+      const completed = dayTasks.filter((t) => t.status === 'completed').length;
+      const total = dayTasks.length;
+      return {
+        label: timeFilter === 'weekly' ? format(day, 'EEE') : format(day, 'd'),
+        completed,
+        total,
+        rate: total > 0 ? Math.round((completed / total) * 100) : 0,
+      };
     });
-
-    return Object.entries(dayStats)
-      .map(([day, data]) => ({
-        day: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][Number(day)],
-        dayNum: Number(day),
-        ...data,
-        rate: data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0,
-      }))
-      .sort((a, b) => a.dayNum - b.dayNum);
-  }, [filteredTasks]);
+  }, [filteredTasks, timeFilter, dateRange]);
 
   const rangeLabel = useMemo(() => {
     if (timeFilter === 'weekly') {
-      return `${format(dateRange.start, 'MMM d')} – ${format(dateRange.end, 'MMM d')}`;
+      return `${format(dateRange.start, 'MMM d')} â€“ ${format(dateRange.end, 'MMM d')}`;
     }
     if (timeFilter === 'monthly') {
       return format(dateRange.start, 'MMMM yyyy');
@@ -405,26 +415,37 @@ const Analytics: React.FC = () => {
           )}
         </div>
 
-        {/* Most Productive Days */}
+        {/* Most Productive Periods */}
         <div className="glass-card rounded-2xl p-6">
-          <h3 className="text-lg font-semibold text-foreground mb-6">Most Productive Days</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-            {productiveDays.map((day) => (
+          <h3 className="text-lg font-semibold text-foreground mb-6">
+            {timeFilter === 'yearly' ? 'Most Productive Months' : 'Most Productive Days'}
+          </h3>
+          <div
+            className={cn(
+              'grid gap-2',
+              timeFilter === 'weekly'
+                ? 'grid-cols-4 sm:grid-cols-7'
+                : timeFilter === 'yearly'
+                ? 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6'
+                : 'grid-cols-7'
+            )}
+          >
+            {productivePeriods.map((period, idx) => (
               <div
-                key={day.day}
+                key={idx}
                 className={cn(
                   'p-3 rounded-lg text-center transition-smooth',
-                  day.rate >= 80
+                  period.rate >= 80
                     ? 'bg-success/20'
-                    : day.rate >= 50
+                    : period.rate >= 50
                     ? 'bg-warning/20'
                     : 'bg-muted'
                 )}
               >
-                <p className="text-xs font-medium text-foreground">{day.day}</p>
-                <p className="text-xl font-bold text-foreground mt-1">{day.rate}%</p>
+                <p className="text-xs font-medium text-foreground">{period.label}</p>
+                <p className="text-xl font-bold text-foreground mt-1">{period.rate}%</p>
                 <p className="text-[10px] text-muted-foreground mt-1">
-                  {day.completed}/{day.total}
+                  {period.completed}/{period.total}
                 </p>
               </div>
             ))}
