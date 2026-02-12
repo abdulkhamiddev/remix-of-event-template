@@ -43,7 +43,7 @@ export const DEFAULT_CATEGORIES: Category[] = [
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  theme: 'dark',
+  theme: 'light',
   themeProfile: 'focus',
   sidebarCollapsed: false,
   animationIntensity: 'full',

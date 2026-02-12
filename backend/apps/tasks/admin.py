@@ -8,6 +8,7 @@ class CategoryAdmin(admin.ModelAdmin):
     list_display = ("id", "user", "name", "is_default", "updated_at")
     search_fields = ("name", "user__username", "user__email")
     list_filter = ("is_default",)
+    readonly_fields = ("created_at", "updated_at")
 
 
 @admin.register(Task)
@@ -16,6 +17,7 @@ class TaskAdmin(admin.ModelAdmin):
     search_fields = ("title", "description", "owner__username", "owner__email")
     list_filter = ("status", "priority", "has_deadline", "has_timer", "is_recurring")
     autocomplete_fields = ("owner", "category")
+    readonly_fields = ("created_at", "updated_at", "due_date")
 
 
 @admin.register(UserSettings)
@@ -36,3 +38,4 @@ class TaskOccurrenceAdmin(admin.ModelAdmin):
     list_display = ("id", "task", "date", "status", "completed_at", "timer_seconds")
     list_filter = ("status", "date")
     search_fields = ("task__title", "task__owner__username", "task__owner__email")
+    readonly_fields = ("task", "date", "status", "completed_at", "timer_seconds", "timer_running_since")

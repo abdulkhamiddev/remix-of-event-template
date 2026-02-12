@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Moon, Sun, Monitor, Palette, Calendar, Clock, Sidebar, Flame } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext.tsx';
+import { useAuth } from '@/contexts/AuthContext.tsx';
 import { AppSettings } from '@/types/task.ts';
 import { Button } from '@/components/ui/button.tsx';
 import { Label } from '@/components/ui/label.tsx';
@@ -24,9 +25,12 @@ interface SettingsApiResponse {
 
 const Settings: React.FC = () => {
   const { settings, updateSettings, effectiveTheme } = useTheme();
+  const { logout } = useAuth();
   const [minDailyTasks, setMinDailyTasks] = useState<number>(3);
   const [thresholdPercent, setThresholdPercent] = useState<number>(80);
   const [isSavingStreak, setIsSavingStreak] = useState<boolean>(false);
+  const [isLoggingOut, setIsLoggingOut] = useState<boolean>(false);
+  const [isLoggingOutAll, setIsLoggingOutAll] = useState<boolean>(false);
 
   const themeOptions: { value: AppSettings['theme']; label: string; icon: React.ReactNode }[] = [
     { value: 'light', label: 'Light', icon: <Sun className="h-4 w-4" /> },
@@ -82,6 +86,28 @@ const Settings: React.FC = () => {
       toast({ title: 'Save failed', description: 'Could not update streak settings.', variant: 'destructive' });
     } finally {
       setIsSavingStreak(false);
+    }
+  };
+
+  const handleLogout = async (allDevices: boolean) => {
+    const confirmed = window.confirm(
+      allDevices
+        ? 'Log out from all devices? This will revoke all active refresh sessions.'
+        : 'Log out of this session?'
+    );
+    if (!confirmed) return;
+
+    if (allDevices) {
+      setIsLoggingOutAll(true);
+    } else {
+      setIsLoggingOut(true);
+    }
+
+    try {
+      await logout(allDevices);
+    } finally {
+      setIsLoggingOut(false);
+      setIsLoggingOutAll(false);
     }
   };
 
@@ -275,6 +301,31 @@ const Settings: React.FC = () => {
           <p><strong>TaskFlow</strong> v1.0</p>
           <p>A premium task management application with occurrence-based productivity analytics.</p>
           <p>Preferences sync with your account when you are signed in.</p>
+        </div>
+      </div>
+
+      {/* Danger Zone */}
+      <div className="glass-card rounded-xl p-6 space-y-4 border border-destructive/30">
+        <h2 className="text-lg font-semibold text-foreground">Danger Zone</h2>
+        <p className="text-sm text-muted-foreground">
+          Sign out from this device, or revoke all active sessions across devices.
+        </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <Button
+            variant="outline"
+            className="border-destructive/40 text-destructive hover:bg-destructive/10"
+            onClick={() => void handleLogout(false)}
+            disabled={isLoggingOut || isLoggingOutAll}
+          >
+            {isLoggingOut ? 'Logging out...' : 'Logout'}
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => void handleLogout(true)}
+            disabled={isLoggingOut || isLoggingOutAll}
+          >
+            {isLoggingOutAll ? 'Logging out all devices...' : 'Logout from all devices'}
+          </Button>
         </div>
       </div>
     </div>

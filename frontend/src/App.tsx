@@ -18,6 +18,9 @@ import Analytics from "@/pages/Analytics.tsx";
 import WeeklyReview from "@/pages/WeeklyReview.tsx";
 import Settings from "@/pages/Settings.tsx";
 import Landing from "@/pages/Landing.tsx";
+import Guide from "@/pages/Guide.tsx";
+import Features from "@/pages/Features.tsx";
+import TelegramAuthCallback from "@/pages/TelegramAuthCallback.tsx";
 import Login from "@/pages/Login.tsx";
 import Register from "@/pages/Register.tsx";
 import ForgotPassword from "@/pages/ForgotPassword.tsx";
@@ -38,6 +41,9 @@ const App = () => (
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/guide" element={<Guide />} />
+                <Route path="/features" element={<Features />} />
+                <Route path="/auth/telegram" element={<TelegramAuthCallback />} />
                 <Route
                   path="/landing"
                   element={

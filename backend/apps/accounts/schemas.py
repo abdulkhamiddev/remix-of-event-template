@@ -38,6 +38,10 @@ class TelegramAuthIn(Schema):
     initData: str = Field(min_length=1)
 
 
+class TelegramMagicIn(Schema):
+    token: str = Field(min_length=32)
+
+
 class AuthUserOut(Schema):
     id: str
     email: str | None = None

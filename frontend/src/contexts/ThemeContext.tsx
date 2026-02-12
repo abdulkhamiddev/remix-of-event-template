@@ -1,13 +1,21 @@
-import React, { createContext, useContext, useEffect, useMemo } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { AppSettings, DEFAULT_SETTINGS } from '@/types/task.ts';
-import { useLocalStorage } from '@/hooks/useLocalStorage.ts';
 import { apiFetch } from '@/lib/apiClient.ts';
 import { authStorage } from '@/lib/authStorage.ts';
+
+const THEME_MODE_KEY = 'theme-mode';
+const SETTINGS_KEY = 'todo-app-settings';
+
+type ThemeMode = AppSettings['theme'];
+type ResolvedTheme = 'light' | 'dark';
 
 interface ThemeContextType {
   settings: AppSettings;
   updateSettings: (updates: Partial<AppSettings>) => void;
-  effectiveTheme: 'light' | 'dark';
+  themeMode: ThemeMode;
+  setThemeMode: (mode: ThemeMode) => void;
+  resolvedMode: ResolvedTheme;
+  effectiveTheme: ResolvedTheme;
   toggleTheme: () => void;
 }
 
@@ -22,6 +30,37 @@ interface SettingsApiPayload {
   timeFormat?: AppSettings['timeFormat'];
 }
 
+const isThemeMode = (value: unknown): value is ThemeMode =>
+  value === 'light' || value === 'dark' || value === 'system';
+
+const resolveSystemTheme = (): ResolvedTheme =>
+  window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+
+const getDomThemeMode = (): ThemeMode => {
+  const rawMode = document.documentElement.dataset.themeMode;
+  return isThemeMode(rawMode) ? rawMode : 'light';
+};
+
+const readStoredSettings = (): Partial<AppSettings> => {
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Partial<AppSettings> | null;
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+};
+
+const applyThemeToDom = (mode: ThemeMode, resolved: ResolvedTheme, profile: AppSettings['themeProfile']) => {
+  const root = document.documentElement;
+  root.dataset.themeMode = mode;
+  root.classList.toggle('dark', resolved === 'dark');
+  root.classList.toggle('light', resolved === 'light');
+  root.setAttribute('data-theme-profile', profile || 'focus');
+};
+
 const buildSettingsPatch = (updates: Partial<AppSettings>): Partial<SettingsApiPayload> => {
   const patch: Partial<SettingsApiPayload> = {};
   if ('theme' in updates && updates.theme) patch.theme = updates.theme;
@@ -34,13 +73,97 @@ const buildSettingsPatch = (updates: Partial<AppSettings>): Partial<SettingsApiP
 };
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [settings, setSettings] = useLocalStorage<AppSettings>('todo-app-settings', DEFAULT_SETTINGS);
+  const initialMode = getDomThemeMode();
+  const initialResolved: ResolvedTheme = initialMode === 'system' ? resolveSystemTheme() : initialMode;
 
-  const effectiveTheme = useMemo(() => {
-    if (settings.theme === 'system') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  const [settings, setSettings] = React.useState<AppSettings>(() => {
+    const stored = readStoredSettings();
+    return {
+      ...DEFAULT_SETTINGS,
+      ...stored,
+      theme: initialMode,
+    };
+  });
+  const [resolvedMode, setResolvedMode] = React.useState<ResolvedTheme>(initialResolved);
+  const settingsRef = useRef(settings);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  const setThemeMode = useCallback((mode: ThemeMode) => {
+    const resolved = mode === 'system' ? resolveSystemTheme() : mode;
+    setResolvedMode(resolved);
+
+    const nextSettings = {
+      ...settingsRef.current,
+      theme: mode,
+    };
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+
+    applyThemeToDom(mode, resolved, nextSettings.themeProfile);
+    try {
+      window.localStorage.setItem(THEME_MODE_KEY, mode);
+      window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(nextSettings));
+    } catch {
+      // Keep runtime state even if persistence fails.
     }
-    return settings.theme;
+  }, []);
+
+  const updateSettings = useCallback((updates: Partial<AppSettings>) => {
+    const previous = settingsRef.current;
+    const next: AppSettings = {
+      ...previous,
+      ...updates,
+    };
+    settingsRef.current = next;
+    setSettings(next);
+
+    if (updates.theme && updates.theme !== previous.theme) {
+      setThemeMode(updates.theme);
+    } else if (updates.themeProfile && updates.themeProfile !== previous.themeProfile) {
+      applyThemeToDom(previous.theme, resolvedMode, updates.themeProfile);
+      try {
+        window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+      } catch {
+        // Keep runtime state even if persistence fails.
+      }
+    } else {
+      try {
+        window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+      } catch {
+        // Keep runtime state even if persistence fails.
+      }
+    }
+
+    const patchPayload = buildSettingsPatch(updates);
+    if (Object.keys(patchPayload).length === 0) return;
+    if (!authStorage.getState().accessToken) return;
+    void apiFetch('/api/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(patchPayload),
+    }).catch(() => {
+      // Keep local state; server sync can be retried from settings view.
+    });
+  }, [resolvedMode, setThemeMode]);
+
+  useEffect(() => {
+    applyThemeToDom(settings.theme, resolvedMode, settings.themeProfile);
+  }, [settings.theme, settings.themeProfile, resolvedMode]);
+
+  useEffect(() => {
+    if (settings.theme !== 'system') return;
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => {
+      const nextResolved = mediaQuery.matches ? 'dark' : 'light';
+      setResolvedMode(nextResolved);
+      applyThemeToDom('system', nextResolved, settingsRef.current.themeProfile);
+    };
+
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
   }, [settings.theme]);
 
   useEffect(() => {
@@ -51,16 +174,25 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       try {
         const payload = await apiFetch<SettingsApiPayload>('/api/settings');
         if (!active) return;
-        setSettings((prev) => ({
-          ...prev,
-          theme: payload.theme ?? prev.theme,
-          themeProfile: payload.themeProfile ?? prev.themeProfile ?? 'focus',
-          sidebarCollapsed: payload.sidebarCollapsed ?? prev.sidebarCollapsed,
-          animationIntensity: payload.animationIntensity ?? prev.animationIntensity,
-          dateFormat: payload.dateFormat ?? prev.dateFormat,
-          timeFormat: payload.timeFormat ?? prev.timeFormat,
-        }));
-      } catch (_error) {
+
+        const previous = settingsRef.current;
+        const nextTheme = isThemeMode(payload.theme) ? payload.theme : previous.theme;
+        const nextResolved = nextTheme === 'system' ? resolveSystemTheme() : nextTheme;
+        const nextSettings: AppSettings = {
+          ...previous,
+          theme: nextTheme,
+          themeProfile: payload.themeProfile ?? previous.themeProfile ?? 'focus',
+          sidebarCollapsed: payload.sidebarCollapsed ?? previous.sidebarCollapsed,
+          animationIntensity: payload.animationIntensity ?? previous.animationIntensity,
+          dateFormat: payload.dateFormat ?? previous.dateFormat,
+          timeFormat: payload.timeFormat ?? previous.timeFormat,
+        };
+
+        settingsRef.current = nextSettings;
+        setResolvedMode(nextResolved);
+        setSettings(nextSettings);
+        applyThemeToDom(nextTheme, nextResolved, nextSettings.themeProfile);
+      } catch {
         // Keep local settings as fallback.
       }
     };
@@ -75,52 +207,24 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       active = false;
       unsubscribe();
     };
-  }, [setSettings]);
+  }, []);
 
-  // Apply theme class to document
-  useEffect(() => {
-    const root = document.documentElement;
-    root.classList.remove('light', 'dark');
-    root.classList.add(effectiveTheme);
-    root.setAttribute('data-theme-profile', settings.themeProfile || 'focus');
-  }, [effectiveTheme, settings.themeProfile]);
-
-  // Listen for system theme changes
-  useEffect(() => {
-    if (settings.theme !== 'system') return;
-
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = () => {
-      const root = document.documentElement;
-      root.classList.remove('light', 'dark');
-      root.classList.add(mediaQuery.matches ? 'dark' : 'light');
-    };
-
-    mediaQuery.addEventListener('change', handler);
-    return () => mediaQuery.removeEventListener('change', handler);
-  }, [settings.theme]);
-
-  const updateSettings = (updates: Partial<AppSettings>) => {
-    setSettings((prev) => ({ ...prev, ...updates }));
-    const patchPayload = buildSettingsPatch(updates);
-    if (Object.keys(patchPayload).length === 0) return;
-    if (!authStorage.getState().accessToken) return;
-    void apiFetch('/api/settings', {
-      method: 'PATCH',
-      body: JSON.stringify(patchPayload),
-    }).catch(() => {
-      // Keep local state; server sync can be retried from settings view.
-    });
-  };
-
-  const toggleTheme = () => {
-    const newTheme = effectiveTheme === 'dark' ? 'light' : 'dark';
-    updateSettings({ theme: newTheme });
-  };
+  const toggleTheme = useCallback(() => {
+    const next = resolvedMode === 'dark' ? 'light' : 'dark';
+    setThemeMode(next);
+  }, [resolvedMode, setThemeMode]);
 
   const value = useMemo(
-    () => ({ settings, updateSettings, effectiveTheme, toggleTheme }),
-    [settings, effectiveTheme]
+    () => ({
+      settings,
+      updateSettings,
+      themeMode: settings.theme,
+      setThemeMode,
+      resolvedMode,
+      effectiveTheme: resolvedMode,
+      toggleTheme,
+    }),
+    [settings, updateSettings, setThemeMode, resolvedMode, toggleTheme]
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

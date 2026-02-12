@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+html.no-theme-transition *,
+html.no-theme-transition *::before,
+html.no-theme-transition *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
 /* 
   LIQUID GLASS DESIGN SYSTEM
   Monochrome palette with frosted glass effects
@@ -11,7 +18,7 @@
 @layer base {
   :root {
     /* Core backgrounds */
-    --background: 0 0% 98%;
+    --background: 42 32% 96%;
     --foreground: 0 0% 9%;
     
     /* Theme profile tokens */
@@ -27,11 +34,11 @@
     --glass-shadow: 0 0% 0% / 0.05;
     
     /* Card surfaces */
-    --card: 0 0% 100%;
+    --card: 42 28% 98%;
     --card-foreground: 0 0% 9%;
     
     /* Popover surfaces */
-    --popover: 0 0% 100%;
+    --popover: 42 28% 98%;
     --popover-foreground: 0 0% 9%;
     
     /* Primary accent - soft neutral */
@@ -39,11 +46,11 @@
     --primary-foreground: 0 0% 98%;
     
     /* Secondary */
-    --secondary: 0 0% 96%;
+    --secondary: 42 22% 94%;
     --secondary-foreground: 0 0% 15%;
     
     /* Muted elements */
-    --muted: 0 0% 94%;
+    --muted: 42 18% 92%;
     --muted-foreground: 0 0% 45%;
     
     /* Accent - subtle highlight */
@@ -64,8 +71,8 @@
     --priority-high: 0 72% 51%;
     
     /* Borders and inputs */
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
+    --border: 42 16% 88%;
+    --input: 42 16% 88%;
     --ring: var(--profile-accent);
     
     /* Radius */
@@ -80,6 +87,24 @@
     --sidebar-accent-foreground: 0 0% 9%;
     --sidebar-border: 0 0% 90%;
     --sidebar-ring: 0 0% 15%;
+
+    /* Marketing (public pages) */
+    --m-bg: #f8f5ee;
+    --m-surface-1: rgba(255, 255, 255, 0.82);
+    --m-surface-2: rgba(255, 255, 255, 0.62);
+    --m-border: rgba(0, 0, 0, 0.08);
+    --m-text: rgba(11, 11, 12, 0.94);
+    --m-text-2: rgba(11, 11, 12, 0.62);
+    --m-accent: #111114;
+    --m-vignette-top: rgba(0, 0, 0, 0.04);
+    --m-vignette-bottom: rgba(0, 0, 0, 0.08);
+    --m-cta-primary-bg: var(--m-accent);
+    --m-cta-primary-text: #ffffff;
+    --m-cta-primary-shadow: rgba(0, 0, 0, 0.16);
+    --m-cta-primary-shadow-hover: rgba(0, 0, 0, 0.24);
+    --m-cta-secondary-bg: rgba(255, 255, 255, 0.72);
+    --m-cta-secondary-text: rgba(11, 11, 12, 0.9);
+    --m-cta-secondary-hover: rgba(255, 255, 255, 0.88);
   }
 
   .dark {
@@ -150,6 +175,24 @@
     --sidebar-accent-foreground: 0 0% 95%;
     --sidebar-border: 0 0% 18%;
     --sidebar-ring: 0 0% 85%;
+
+    /* Marketing (public pages) */
+    --m-bg: #0b0b0c;
+    --m-surface-1: rgba(255, 255, 255, 0.04);
+    --m-surface-2: rgba(255, 255, 255, 0.06);
+    --m-border: rgba(255, 255, 255, 0.08);
+    --m-text: rgba(255, 255, 255, 0.95);
+    --m-text-2: rgba(255, 255, 255, 0.7);
+    --m-accent: #f2f2f3;
+    --m-vignette-top: rgba(255, 255, 255, 0.08);
+    --m-vignette-bottom: rgba(0, 0, 0, 0.58);
+    --m-cta-primary-bg: var(--m-accent);
+    --m-cta-primary-text: #0b0b0c;
+    --m-cta-primary-shadow: rgba(255, 255, 255, 0.08);
+    --m-cta-primary-shadow-hover: rgba(255, 255, 255, 0.14);
+    --m-cta-secondary-bg: rgba(255, 255, 255, 0.08);
+    --m-cta-secondary-text: rgba(255, 255, 255, 0.92);
+    --m-cta-secondary-hover: rgba(255, 255, 255, 0.12);
   }
 
   :root[data-theme-profile="focus"] {
@@ -238,6 +281,80 @@
 
   .section-label {
     @apply text-xs uppercase tracking-[0.12em] text-muted-foreground;
+  }
+
+  .marketing-root {
+    @apply relative isolate overflow-x-clip;
+    background-color: var(--m-bg);
+    color: var(--m-text);
+  }
+
+  .marketing-vignette {
+    background:
+      radial-gradient(72% 48% at 50% -8%, var(--m-vignette-top) 0%, rgba(0, 0, 0, 0) 60%),
+      radial-gradient(110% 76% at 50% 108%, var(--m-vignette-bottom) 0%, rgba(0, 0, 0, 0) 68%);
+  }
+
+  .marketing-text-primary {
+    color: var(--m-text);
+  }
+
+  .marketing-text-secondary {
+    color: var(--m-text-2);
+  }
+
+  .marketing-surface-1 {
+    background-color: var(--m-surface-1);
+    border: 1px solid var(--m-border);
+    backdrop-filter: blur(12px);
+  }
+
+  .marketing-surface-2 {
+    background-color: var(--m-surface-2);
+    border: 1px solid var(--m-border);
+    backdrop-filter: blur(14px);
+  }
+
+  .marketing-divider {
+    border-color: var(--m-border);
+  }
+
+  .marketing-chip {
+    background-color: var(--m-surface-2);
+    border: 1px solid var(--m-border);
+  }
+
+  .marketing-section-separator {
+    height: 1px;
+    border: 0;
+    background: linear-gradient(90deg, rgba(0, 0, 0, 0), var(--m-border), rgba(0, 0, 0, 0));
+  }
+
+  .marketing-cta-primary {
+    background-color: var(--m-cta-primary-bg);
+    color: var(--m-cta-primary-text);
+    border-radius: 15px;
+    min-height: 50px;
+    padding-inline: 2rem;
+    box-shadow: 0 6px 20px var(--m-cta-primary-shadow);
+  }
+
+  .marketing-cta-primary:hover {
+    filter: brightness(0.98);
+    box-shadow: 0 10px 30px var(--m-cta-primary-shadow-hover);
+  }
+
+  .marketing-cta-secondary {
+    background-color: var(--m-cta-secondary-bg);
+    color: var(--m-cta-secondary-text);
+    border-radius: 15px;
+    min-height: 50px;
+    padding-inline: 1.8rem;
+    border: 1px solid var(--m-border);
+  }
+
+  .marketing-cta-secondary:hover {
+    background-color: var(--m-cta-secondary-hover);
   }
   
   /* Sidebar glass effect */

@@ -13,8 +13,10 @@
 - `POST /api/auth/login`
 - `POST /api/auth/refresh` (refresh rotation: revoke old, issue new)
 - `POST /api/auth/logout`
+- `POST /api/auth/logout-all`
 - `GET /api/auth/me` -> `{ id, email, username, displayName }`
-- `POST /api/auth/telegram` -> `{ initData }`
+- `POST /api/auth/telegram/magic` -> `{ token }` (bot-issued one-time link exchange)
+- `POST /api/auth/telegram` -> `{ initData }` (legacy endpoint; not used by bot flow)
 
 ### Tasks
 - `GET /api/tasks`
@@ -60,7 +62,10 @@ cp .env.example .env
 2. Set required values:
 - `DJANGO_SECRET_KEY`
 - `POSTGRES_*`
-- `TELEGRAM_BOT_TOKEN` (only needed for `/api/auth/telegram`)
+- `TELEGRAM_BOT_TOKEN`
+- `PUBLIC_APP_URL` (must point to the frontend base URL where `/auth/telegram` exists, e.g. `https://app.example.com` or `http://localhost:8080`)
+- `TELEGRAM_MAGIC_TTL_MINUTES` (default `5`)
+- `TELEGRAM_MAGIC_RATE_LIMIT` (default `5`)
 
 ## Local Run (without Docker)
 ```bash
@@ -73,6 +78,21 @@ python manage.py createsuperuser
 python manage.py seed_demo
 python manage.py runserver 0.0.0.0:8000
 ```
+
+## Bot Runner (Aiogram)
+Run in a second terminal after backend env is configured:
+
+```bash
+cd backend
+pip install aiogram==3.22.0
+python -m bot.main
+```
+
+Bot login flow:
+1. Open `https://t.me/taskFlowelite_bot?start=login`
+2. Press Start
+3. Receive one-time URL (`/auth/telegram?token=...`)
+4. URL exchanges token via `POST /api/auth/telegram/magic` and logs in
 
 ## Docker Run
 ```bash
@@ -103,6 +123,9 @@ python manage.py seed_demo --email demo@example.com --username demo --password D
 ## Smoke Test
 - HTTP file: `backend/smoke_test.http`
 - Covers: register/login/me, category create, task create/complete, analytics weekly/monthly/yearly.
+- Telegram magic link verification:
+  - first use succeeds
+  - second use fails (`magic_link_used`)
 
 ## Frontend Migration (localStorage -> API)
 

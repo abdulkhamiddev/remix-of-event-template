@@ -48,6 +48,32 @@ export const registerRequest = async (identifier: string, password: string): Pro
   return normalizeAuthResponse(data);
 };
 
+export const telegramMagicLoginRequest = async (token: string): Promise<AuthState> => {
+  const data = await apiFetch<AuthResponse>("/api/auth/telegram/magic", {
+    method: "POST",
+    auth: false,
+    skipRefresh: true,
+    body: JSON.stringify({ token }),
+  });
+  return normalizeAuthResponse(data);
+};
+
+export const logoutRequest = async (refreshToken?: string | null): Promise<void> => {
+  await apiFetch<void>("/api/auth/logout", {
+    method: "POST",
+    body: JSON.stringify({
+      refresh: refreshToken ?? null,
+    }),
+  });
+};
+
+export const logoutAllRequest = async (): Promise<void> => {
+  await apiFetch<void>("/api/auth/logout-all", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+};
+
 export const fetchCurrentUser = async (): Promise<AuthUser> => {
   return apiFetch<AuthUser>("/api/auth/me", {
     method: "GET",

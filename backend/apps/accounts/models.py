@@ -7,6 +7,7 @@ from django.utils import timezone
 
 class User(AbstractUser):
     email = models.EmailField(unique=True, null=True, blank=True)
+    phone = models.CharField(max_length=32, unique=True, null=True, blank=True)
     display_name = models.CharField(max_length=150, blank=True)
     telegram_id = models.BigIntegerField(unique=True, null=True, blank=True)
     telegram_username = models.CharField(max_length=150, blank=True)
@@ -52,3 +53,38 @@ class RefreshToken(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id}:{self.jti}"
+
+
+class TelegramMagicLink(models.Model):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name="telegram_magic_links",
+        null=True,
+        blank=True,
+    )
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+    telegram_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    telegram_username = models.CharField(max_length=150, blank=True, default="")
+    telegram_first_name = models.CharField(max_length=150, blank=True, default="")
+    phone = models.CharField(max_length=32, blank=True, default="", db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["user", "created_at"], name="accounts_te_user_id_4c9eb4_idx"),
+            models.Index(fields=["created_at"], name="accounts_te_created_fa9a38_idx"),
+        ]
+
+    @property
+    def is_expired(self) -> bool:
+        return self.expires_at <= timezone.now()
+
+    @property
+    def is_used(self) -> bool:
+        return self.used_at is not None
+
+    def __str__(self) -> str:
+        return f"{self.user_id or self.telegram_id}:{self.created_at.isoformat()}"

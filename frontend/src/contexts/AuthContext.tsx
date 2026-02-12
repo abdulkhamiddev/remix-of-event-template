@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { AuthState, AuthUser } from "@/types/auth.ts";
 import { authStorage, getInitialAuthState } from "@/lib/authStorage.ts";
-import { fetchCurrentUser, loginRequest, registerRequest } from "@/lib/authApi.ts";
+import { fetchCurrentUser, loginRequest, logoutAllRequest, logoutRequest, registerRequest } from "@/lib/authApi.ts";
 import { isNetworkError, refreshAccessToken } from "@/lib/apiClient.ts";
 import { getMockAuthState, isAuthMockEnabled, isMockAccessToken } from "@/lib/authMock.ts";
 
@@ -12,7 +12,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (identifier: string, password: string) => Promise<void>;
   register: (identifier: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: (allDevices?: boolean) => Promise<void>;
   refresh: () => Promise<string | null>;
 }
 
@@ -107,8 +107,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const logout = useCallback(() => {
-    authStorage.clearState();
+  const logout = useCallback(async (allDevices = false) => {
+    const { refreshToken } = authStorage.getState();
+    try {
+      if (allDevices) {
+        await logoutAllRequest();
+      } else {
+        await logoutRequest(refreshToken);
+      }
+    } catch (_error) {
+      // Clear local auth state even if server-side token revoke fails.
+    } finally {
+      authStorage.clearState();
+      if (typeof window !== "undefined") {
+        window.location.replace("/landing");
+      }
+    }
   }, []);
 
   const refresh = useCallback(async () => {

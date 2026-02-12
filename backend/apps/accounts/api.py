@@ -24,7 +24,10 @@ from apps.accounts.schemas import (
     RefreshResponse,
     RegisterIn,
     TelegramAuthIn,
+    TelegramMagicIn,
 )
+from apps.accounts.telegram_magic import consume_magic_token
+from apps.accounts.telegram_notify import send_login_success_message
 from apps.common.auth import JWTAuth
 from apps.common.exceptions import APIError
 from apps.common.jwt import JWTDecodeError, create_access_token, create_refresh_token, decode_token
@@ -66,6 +69,54 @@ def _serialize_user(user) -> AuthUserOut:
         username=user.username or None,
         displayName=display_name,
     )
+
+
+def _resolve_display_name(first_name: str | None, username: str | None, telegram_id: int) -> str:
+    first = (first_name or "").strip()
+    if first:
+        return first
+    user_name = (username or "").strip()
+    if user_name:
+        return user_name
+    return f"tg_{telegram_id}"
+
+
+def _get_or_create_user_from_magic_link(link) -> User:
+    if link.user_id:
+        return link.user
+
+    telegram_id = link.telegram_id
+    if not telegram_id:
+        raise APIError("Login link is invalid.", code="invalid_magic_link", status=401)
+
+    telegram_username = (link.telegram_username or "").strip() or None
+    display_name = _resolve_display_name(link.telegram_first_name, telegram_username, int(telegram_id))
+    user = User.objects.filter(telegram_id=telegram_id).first()
+    if not user:
+        base_username = telegram_username or f"tg_{telegram_id}"
+        user = User(
+            username=_safe_username(base_username),
+            telegram_id=telegram_id,
+            telegram_username=telegram_username or "",
+            display_name=display_name,
+            is_active=True,
+        )
+        user.set_unusable_password()
+        user.save()
+    else:
+        update_fields = []
+        if telegram_username and user.telegram_username != telegram_username:
+            user.telegram_username = telegram_username
+            update_fields.append("telegram_username")
+        if display_name and user.display_name != display_name:
+            user.display_name = display_name
+            update_fields.append("display_name")
+        if update_fields:
+            user.save(update_fields=update_fields)
+
+    link.user = user
+    link.save(update_fields=["user"])
+    return user
 
 
 def _request_meta(request) -> tuple[str, str]:
@@ -244,7 +295,6 @@ def refresh_tokens(request, payload: RefreshIn):
 @router.post("/logout", auth=JWTAuth(), response={204: None})
 @transaction.atomic
 def logout(request, payload: LogoutIn | None = None):
-    now = timezone.now()
     refresh_value = payload.refresh if payload else None
     if refresh_value:
         try:
@@ -254,10 +304,15 @@ def logout(request, payload: LogoutIn | None = None):
         token_jti = decoded.get("jti")
         token_hash = _hash_refresh_token(refresh_value)
         RefreshToken.objects.filter(user=request.auth, jti=token_jti, token_hash=token_hash, revoked_at__isnull=True).update(
-            revoked_at=now
+            revoked_at=timezone.now()
         )
-    else:
-        RefreshToken.objects.filter(user=request.auth, revoked_at__isnull=True).update(revoked_at=now)
+    return 204, None
+
+
+@router.post("/logout-all", auth=JWTAuth(), response={204: None})
+@transaction.atomic
+def logout_all(request):
+    RefreshToken.objects.filter(user=request.auth, revoked_at__isnull=True).update(revoked_at=timezone.now())
     return 204, None
 
 
@@ -265,6 +320,21 @@ def logout(request, payload: LogoutIn | None = None):
 def current_user(request):
     # Contract: /auth/me returns only id, email, username, displayName
     return _serialize_user(request.auth)
+
+
+@router.post("/telegram/magic", response=AuthResponse)
+@transaction.atomic
+def telegram_magic_login(request, payload: TelegramMagicIn):
+    link = consume_magic_token(payload.token)
+    user = _get_or_create_user_from_magic_link(link)
+    if not user.is_active:
+        raise APIError("Account is disabled.", code="inactive_user", status=403)
+
+    tokens, _token_record = _issue_tokens(user, request)
+    telegram_id = link.telegram_id or user.telegram_id
+    if telegram_id:
+        send_login_success_message(int(telegram_id))
+    return {**tokens, "user": _serialize_user(user)}
 
 
 @router.post("/telegram", response=AuthResponse)

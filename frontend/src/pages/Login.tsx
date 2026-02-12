@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert.tsx";
 import { useAuth } from "@/contexts/AuthContext.tsx";
 import { ApiError } from "@/lib/apiClient.ts";
 import { isAuthMockEnabled } from "@/lib/authMock.ts";
+import { TELEGRAM_LOGIN_DEEP_LINK, TELEGRAM_LOGIN_HTTP_URL } from "@/lib/telegramLinks.ts";
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -23,7 +24,6 @@ const Login: React.FC = () => {
   const [fieldErrors, setFieldErrors] = useState<{ identifier?: string; password?: string }>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [telegramHint, setTelegramHint] = useState<string | null>(null);
 
   const redirectTo = useMemo(() => {
     const state = location.state as LocationState | null;
@@ -53,7 +53,6 @@ const Login: React.FC = () => {
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError(null);
-    setTelegramHint(null);
 
     if (!validate()) return;
 
@@ -86,14 +85,9 @@ const Login: React.FC = () => {
                 <AlertDescription>{formError}</AlertDescription>
               </Alert>
             )}
-            {telegramHint && (
+            {telegramRequested && (
               <Alert>
-                <AlertDescription>{telegramHint}</AlertDescription>
-              </Alert>
-            )}
-            {telegramRequested && !telegramHint && (
-              <Alert>
-                <AlertDescription>Telegram option is available below. Start from Telegram app to use `initData` flow.</AlertDescription>
+                <AlertDescription>Open bot chat and use your one-time secure login link.</AlertDescription>
               </Alert>
             )}
             {isAuthMockEnabled() && (
@@ -138,14 +132,16 @@ const Login: React.FC = () => {
               <Button type="submit" className="w-full" disabled={isSubmitting}>
                 {isSubmitting ? "Signing in..." : "Sign in"}
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() => setTelegramHint("Open TaskFlow from Telegram WebApp/Login Widget to continue with Telegram sign-in.")}
-              >
-                Start with Telegram
+              <Button variant="outline" className="w-full" asChild>
+                <a href={TELEGRAM_LOGIN_HTTP_URL} target="_blank" rel="noreferrer">
+                  Continue with Telegram
+                </a>
               </Button>
+              <p className="text-center text-xs text-muted-foreground">
+                <a className="underline underline-offset-4" href={TELEGRAM_LOGIN_DEEP_LINK}>
+                  Open Telegram app directly
+                </a>
+              </p>
             </form>
 
             <p className="text-sm text-muted-foreground text-center">
