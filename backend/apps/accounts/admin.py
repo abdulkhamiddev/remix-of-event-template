@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from apps.accounts.models import RefreshToken, TelegramMagicLink, User
+from apps.accounts.models import PasswordResetToken, RefreshToken, TelegramMagicLink, User
 
 
 @admin.register(User)
@@ -37,3 +37,11 @@ class TelegramMagicLinkAdmin(admin.ModelAdmin):
         "phone",
         "created_at",
     )
+
+
+@admin.register(PasswordResetToken)
+class PasswordResetTokenAdmin(admin.ModelAdmin):
+    list_display = ("user", "expires_at", "used_at", "created_at", "requested_ip")
+    search_fields = ("user__email", "user__username", "token_hash")
+    list_filter = ("used_at", "expires_at", "created_at")
+    readonly_fields = ("user", "token_hash", "created_at", "expires_at", "used_at", "requested_ip")

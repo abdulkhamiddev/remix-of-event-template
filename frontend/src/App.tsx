@@ -24,6 +24,7 @@ import TelegramAuthCallback from "@/pages/TelegramAuthCallback.tsx";
 import Login from "@/pages/Login.tsx";
 import Register from "@/pages/Register.tsx";
 import ForgotPassword from "@/pages/ForgotPassword.tsx";
+import ResetPassword from "@/pages/ResetPassword.tsx";
 import NotFound from "@/pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -41,6 +42,7 @@ const App = () => (
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/guide" element={<Guide />} />
                 <Route path="/features" element={<Features />} />
                 <Route path="/auth/telegram" element={<TelegramAuthCallback />} />

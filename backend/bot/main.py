@@ -24,6 +24,7 @@ from apps.accounts.telegram_magic import (
     get_magic_link_ttl_minutes,
 )
 from apps.common.exceptions import APIError
+from apps.common.rate_limit import RateLimitExceeded
 
 User = get_user_model()
 
@@ -57,6 +58,9 @@ async def _send_login_link(message: Message) -> None:
         )
     except APIError as exc:
         await message.answer(exc.detail)
+        return
+    except RateLimitExceeded as exc:
+        await message.answer(f"Too many requests. Please try again in {exc.retry_after} seconds.")
         return
     except Exception:
         await message.answer("Could not generate login link right now. Please try again.")

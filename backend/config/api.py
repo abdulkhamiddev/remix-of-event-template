@@ -6,6 +6,7 @@ from ninja.errors import AuthenticationError, AuthorizationError, HttpError, Val
 from apps.accounts.api import router as auth_router
 from apps.analytics.api import router as analytics_router
 from apps.common.exceptions import APIError
+from apps.common.rate_limit import RateLimitExceeded
 from apps.review.api import router as review_router
 from apps.streak.api import router as streak_router
 from apps.suggestions.api import router as suggestions_router
@@ -25,6 +26,15 @@ def handle_api_error(request, exc: APIError):
         request,
         {"detail": exc.detail, "code": exc.code, "fields": exc.fields or {}},
         status=exc.status,
+    )
+
+
+@api.exception_handler(RateLimitExceeded)
+def handle_rate_limit_error(request, exc: RateLimitExceeded):
+    return api.create_response(
+        request,
+        {"detail": "rate_limited", "retry_after": exc.retry_after},
+        status=429,
     )
 
 

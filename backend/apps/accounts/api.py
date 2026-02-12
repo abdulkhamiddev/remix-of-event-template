@@ -1,7 +1,7 @@
 import hashlib
 import hmac
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 from urllib.parse import parse_qsl
 
@@ -14,23 +14,28 @@ from django.db import transaction
 from django.utils import timezone
 from ninja import Router
 
-from apps.accounts.models import RefreshToken
+from apps.accounts.models import PasswordResetToken, RefreshToken
+from apps.accounts.password_reset import build_reset_link, generate_reset_token, hash_reset_token, send_reset_email
 from apps.accounts.schemas import (
     AuthResponse,
     AuthUserOut,
+    DetailResponse,
+    ForgotPasswordIn,
     LoginIn,
     LogoutIn,
+    ResetPasswordIn,
     RefreshIn,
     RefreshResponse,
     RegisterIn,
     TelegramAuthIn,
     TelegramMagicIn,
 )
-from apps.accounts.telegram_magic import consume_magic_token
+from apps.accounts.telegram_magic import consume_magic_token, get_magic_link_limit_metadata
 from apps.accounts.telegram_notify import send_login_success_message
 from apps.common.auth import JWTAuth
 from apps.common.exceptions import APIError
 from apps.common.jwt import JWTDecodeError, create_access_token, create_refresh_token, decode_token
+from apps.common.rate_limit import RateLimitRule, rate_limit_rules, request_ip
 
 router = Router(tags=["auth"])
 User = get_user_model()
@@ -129,6 +134,68 @@ def _hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def _payload_from_args(args: tuple[object, ...], kwargs: dict[str, object], key: str):
+    if key in kwargs:
+        return kwargs.get(key)
+    if args:
+        return args[0]
+    return None
+
+
+def _rate_key_ip(request, _args: tuple[object, ...], _kwargs: dict[str, object]) -> str:
+    return request_ip(request)
+
+
+def _rate_key_refresh_user_or_ip(request, args: tuple[object, ...], kwargs: dict[str, object]) -> str:
+    payload = _payload_from_args(args, kwargs, "payload")
+    refresh_value = getattr(payload, "refresh", None) if payload else None
+    if not refresh_value:
+        return request_ip(request)
+    try:
+        decoded = decode_token(refresh_value, expected_type="refresh")
+    except JWTDecodeError:
+        return request_ip(request)
+    user_id = decoded.get("sub")
+    if user_id:
+        return f"user:{user_id}"
+    return request_ip(request)
+
+
+def _get_magic_limit_metadata_cached(request, args: tuple[object, ...], kwargs: dict[str, object]):
+    cached = getattr(request, "_magic_limit_metadata", None)
+    if cached is not None:
+        return cached
+    payload = _payload_from_args(args, kwargs, "payload")
+    token = getattr(payload, "token", None) if payload else None
+    if not token:
+        metadata = get_magic_link_limit_metadata("")
+    else:
+        metadata = get_magic_link_limit_metadata(token)
+    setattr(request, "_magic_limit_metadata", metadata)
+    return metadata
+
+
+def _rate_key_magic_telegram_id(request, args: tuple[object, ...], kwargs: dict[str, object]) -> str | None:
+    metadata = _get_magic_limit_metadata_cached(request, args, kwargs)
+    if metadata.telegram_id is None:
+        return None
+    return f"{metadata.telegram_id}"
+
+
+def _rate_key_magic_phone(request, args: tuple[object, ...], kwargs: dict[str, object]) -> str | None:
+    metadata = _get_magic_limit_metadata_cached(request, args, kwargs)
+    return metadata.phone
+
+
+def _find_user_by_identifier(identifier: str):
+    candidate = (identifier or "").strip()
+    if not candidate:
+        return None
+    if "@" in candidate:
+        return User.objects.filter(email__iexact=candidate.lower()).first()
+    return User.objects.filter(username__iexact=candidate).first()
+
+
 def _issue_tokens(user, request) -> tuple[dict, RefreshToken]:
     access, _ = create_access_token(user.id)
     refresh, refresh_payload = create_refresh_token(user.id)
@@ -214,6 +281,11 @@ def _extract_telegram_user(data: dict[str, str]) -> tuple[int, str | None, str]:
 
 
 @router.post("/register", response=AuthResponse)
+@rate_limit_rules(
+    "auth_register",
+    [RateLimitRule(name="ip", rate=settings.AUTH_REGISTER_RATE, key_func=_rate_key_ip)],
+    methods=("POST",),
+)
 @transaction.atomic
 def register(request, payload: RegisterIn):
     email, username = _normalize_identifier(payload.email, payload.username)
@@ -250,6 +322,11 @@ def register(request, payload: RegisterIn):
 
 
 @router.post("/login", response=AuthResponse)
+@rate_limit_rules(
+    "auth_login",
+    [RateLimitRule(name="ip", rate=settings.AUTH_LOGIN_RATE, key_func=_rate_key_ip)],
+    methods=("POST",),
+)
 @transaction.atomic
 def login(request, payload: LoginIn):
     email, username = _normalize_identifier(payload.email, payload.username)
@@ -259,6 +336,11 @@ def login(request, payload: LoginIn):
 
 
 @router.post("/refresh", response=RefreshResponse)
+@rate_limit_rules(
+    "auth_refresh",
+    [RateLimitRule(name="user_or_ip", rate=settings.AUTH_REFRESH_RATE, key_func=_rate_key_refresh_user_or_ip)],
+    methods=("POST",),
+)
 @transaction.atomic
 def refresh_tokens(request, payload: RefreshIn):
     try:
@@ -323,6 +405,15 @@ def current_user(request):
 
 
 @router.post("/telegram/magic", response=AuthResponse)
+@rate_limit_rules(
+    "auth_telegram_magic",
+    [
+        RateLimitRule(name="ip", rate=settings.TELEGRAM_MAGIC_RATE, key_func=_rate_key_ip),
+        RateLimitRule(name="telegram_id", rate=settings.TELEGRAM_MAGIC_RATE, key_func=_rate_key_magic_telegram_id),
+        RateLimitRule(name="phone", rate=settings.TELEGRAM_MAGIC_RATE, key_func=_rate_key_magic_phone),
+    ],
+    methods=("POST",),
+)
 @transaction.atomic
 def telegram_magic_login(request, payload: TelegramMagicIn):
     link = consume_magic_token(payload.token)
@@ -338,6 +429,11 @@ def telegram_magic_login(request, payload: TelegramMagicIn):
 
 
 @router.post("/telegram", response=AuthResponse)
+@rate_limit_rules(
+    "auth_telegram_widget",
+    [RateLimitRule(name="ip", rate=settings.TELEGRAM_MAGIC_RATE, key_func=_rate_key_ip)],
+    methods=("POST",),
+)
 @transaction.atomic
 def telegram_login(request, payload: TelegramAuthIn):
     verified_data = _verify_telegram_hash(payload.initData)
@@ -368,3 +464,64 @@ def telegram_login(request, payload: TelegramAuthIn):
 
     tokens, _token_record = _issue_tokens(user, request)
     return {**tokens, "user": _serialize_user(user)}
+
+
+@router.post("/forgot-password", response=DetailResponse)
+@rate_limit_rules(
+    "auth_forgot_password",
+    [RateLimitRule(name="ip", rate=settings.AUTH_FORGOT_RATE, key_func=_rate_key_ip)],
+    methods=("POST",),
+)
+@transaction.atomic
+def forgot_password(request, payload: ForgotPasswordIn):
+    user = _find_user_by_identifier(payload.emailOrUsername)
+    if user and user.is_active and user.email:
+        raw_token = generate_reset_token()
+        PasswordResetToken.objects.create(
+            user=user,
+            token_hash=hash_reset_token(raw_token),
+            expires_at=timezone.now() + timedelta(minutes=settings.PASSWORD_RESET_TTL_MINUTES),
+            requested_ip=request_ip(request),
+        )
+        link = build_reset_link(raw_token)
+        try:
+            send_reset_email(user, link)
+        except Exception:
+            # Keep a generic response to avoid account enumeration or provider leakage.
+            pass
+    return {"detail": "if_account_exists_email_sent"}
+
+
+@router.post("/reset-password", response=DetailResponse)
+@rate_limit_rules(
+    "auth_reset_password",
+    [RateLimitRule(name="ip", rate=settings.AUTH_RESET_RATE, key_func=_rate_key_ip)],
+    methods=("POST",),
+)
+@transaction.atomic
+def reset_password(request, payload: ResetPasswordIn):
+    token_hash = hash_reset_token(payload.token)
+    reset_token = PasswordResetToken.objects.select_related("user").filter(token_hash=token_hash).first()
+    if not reset_token:
+        raise APIError("token_invalid", code="token_invalid", status=401)
+    if reset_token.is_used:
+        raise APIError("token_used", code="token_used", status=401)
+    if reset_token.is_expired:
+        raise APIError("token_expired", code="token_expired", status=401)
+
+    try:
+        validate_password(payload.newPassword, user=reset_token.user)
+    except DjangoValidationError as exc:
+        raise APIError(
+            "Validation failed.",
+            code="validation_error",
+            status=422,
+            fields={"newPassword": " ".join(exc.messages) if exc.messages else "Password is invalid."},
+        ) from exc
+
+    user = reset_token.user
+    user.set_password(payload.newPassword)
+    user.save(update_fields=["password"])
+    reset_token.used_at = timezone.now()
+    reset_token.save(update_fields=["used_at"])
+    return {"detail": "password_reset_ok"}

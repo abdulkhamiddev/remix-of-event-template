@@ -42,6 +42,15 @@ class TelegramMagicIn(Schema):
     token: str = Field(min_length=32)
 
 
+class ForgotPasswordIn(Schema):
+    emailOrUsername: str = Field(min_length=1)
+
+
+class ResetPasswordIn(Schema):
+    token: str = Field(min_length=32)
+    newPassword: str = Field(min_length=8)
+
+
 class AuthUserOut(Schema):
     id: str
     email: str | None = None
@@ -58,3 +67,7 @@ class AuthResponse(Schema):
 class RefreshResponse(Schema):
     access: str
     refresh: str
+
+
+class DetailResponse(Schema):
+    detail: str

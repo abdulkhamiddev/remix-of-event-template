@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 
 from django.contrib.auth.models import AbstractUser
 from django.db import models
@@ -88,3 +89,30 @@ class TelegramMagicLink(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id or self.telegram_id}:{self.created_at.isoformat()}"
+
+
+def _default_password_reset_expiry():
+    return timezone.now() + timedelta(minutes=15)
+
+
+class PasswordResetToken(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="password_reset_tokens")
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(default=_default_password_reset_expiry, db_index=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+    requested_ip = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["user", "created_at"]),
+            models.Index(fields=["expires_at"]),
+        ]
+
+    @property
+    def is_expired(self) -> bool:
+        return self.expires_at <= timezone.now()
+
+    @property
+    def is_used(self) -> bool:
+        return self.used_at is not None

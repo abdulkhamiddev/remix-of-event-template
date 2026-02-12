@@ -1,12 +1,15 @@
 import hashlib
 import os
 import secrets
+from dataclasses import dataclass
 from datetime import timedelta
 
+from django.conf import settings
 from django.utils import timezone
 
 from apps.accounts.models import TelegramMagicLink, User
 from apps.common.exceptions import APIError
+from apps.common.rate_limit import enforce_rate_limit
 
 
 def normalize_phone(phone_raw: str) -> str:
@@ -60,8 +63,10 @@ def get_magic_link_ttl_minutes() -> int:
     return max(1, int(os.getenv("TELEGRAM_MAGIC_TTL_MINUTES", "5")))
 
 
-def get_magic_link_rate_limit() -> int:
-    return max(1, int(os.getenv("TELEGRAM_MAGIC_RATE_LIMIT", "5")))
+@dataclass(frozen=True)
+class MagicLinkLimitMetadata:
+    telegram_id: int | None
+    phone: str | None
 
 
 def build_magic_link_url(token: str) -> str:
@@ -69,23 +74,17 @@ def build_magic_link_url(token: str) -> str:
     return f"{public_app_url}/auth/telegram?token={token}"
 
 
-def assert_rate_limit(telegram_id: int | None, phone: str | None) -> None:
-    now = timezone.now()
-    window_start = now - timedelta(minutes=get_magic_link_ttl_minutes())
-    queryset = TelegramMagicLink.objects.filter(created_at__gte=window_start)
-    if telegram_id is not None:
-        queryset = queryset.filter(telegram_id=telegram_id)
-    elif phone:
-        queryset = queryset.filter(phone=phone)
-    else:
-        return
-
-    if queryset.count() >= get_magic_link_rate_limit():
-        raise APIError(
-            "Too many login link requests. Please wait and try again.",
-            code="rate_limited",
-            status=429,
-        )
+def get_magic_link_limit_metadata(token: str) -> MagicLinkLimitMetadata:
+    if not token:
+        return MagicLinkLimitMetadata(telegram_id=None, phone=None)
+    token_hash = hash_magic_token(token)
+    link = TelegramMagicLink.objects.filter(token_hash=token_hash).only("telegram_id", "phone").first()
+    if not link:
+        return MagicLinkLimitMetadata(telegram_id=None, phone=None)
+    return MagicLinkLimitMetadata(
+        telegram_id=link.telegram_id,
+        phone=(link.phone or None),
+    )
 
 
 def create_magic_link(
@@ -96,7 +95,20 @@ def create_magic_link(
     telegram_first_name: str | None = None,
     phone: str | None = None,
 ) -> tuple[str, TelegramMagicLink]:
-    assert_rate_limit(telegram_id=telegram_id, phone=phone)
+    if telegram_id is not None:
+        enforce_rate_limit(
+            "bot_telegram_login",
+            "telegram_id",
+            f"{telegram_id}",
+            settings.TELEGRAM_CONTACT_RATE,
+        )
+    if phone:
+        enforce_rate_limit(
+            "bot_telegram_login",
+            "phone",
+            phone,
+            settings.TELEGRAM_CONTACT_RATE,
+        )
     token = generate_magic_token()
     link = TelegramMagicLink.objects.create(
         user=user,
@@ -112,7 +124,7 @@ def create_magic_link(
 
 def consume_magic_token(token: str) -> TelegramMagicLink:
     token_hash = hash_magic_token(token)
-    link = TelegramMagicLink.objects.select_for_update().select_related("user").filter(token_hash=token_hash).first()
+    link = TelegramMagicLink.objects.select_for_update().filter(token_hash=token_hash).first()
     if not link:
         raise APIError("Login link is invalid.", code="invalid_magic_link", status=401)
     if link.is_used:
