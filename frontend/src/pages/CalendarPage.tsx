@@ -1,7 +1,8 @@
-import React, { useMemo, useState, useEffect } from 'react';
+﻿import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { useTaskContext } from '@/contexts/TaskContext.tsx';
+import { Task } from '@/types/task.ts';
 import { TaskCard } from '@/components/tasks/TaskCard.tsx';
 import { Button } from '@/components/ui/button.tsx';
 import { Badge } from '@/components/ui/badge.tsx';
@@ -32,12 +33,14 @@ type CalendarView = 'month' | 'week';
 
 const CalendarPage: React.FC = () => {
   const navigate = useNavigate();
-  const { tasks, getTasksByDate } = useTaskContext();
+  const { fetchTasksInRange, tasks } = useTaskContext();
   const isMobile = useIsMobile();
   const [viewMode, setViewMode] = useState<CalendarView>(isMobile ? 'week' : 'month');
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
   const [currentWeekStart, setCurrentWeekStart] = useState(() => startOfWeek(new Date()));
   const [selectedDate, setSelectedDate] = useState<Date>(startOfDay(new Date()));
+  const [rangeTasks, setRangeTasks] = useState<Task[]>([]);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(false);
 
   useEffect(() => {
     setViewMode(isMobile ? 'week' : 'month');
@@ -83,12 +86,36 @@ const CalendarPage: React.FC = () => {
     return eachDayOfInterval({ start, end });
   }, [currentWeekStart]);
 
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setIsLoadingTasks(true);
+      try {
+        const rangeStart = viewMode === 'month' ? startOfMonth(currentMonth) : startOfWeek(currentWeekStart);
+        const rangeEnd = viewMode === 'month' ? endOfMonth(currentMonth) : endOfWeek(currentWeekStart);
+        const items = await fetchTasksInRange(rangeStart, rangeEnd);
+        if (!active) return;
+        setRangeTasks(items);
+      } catch (error) {
+        console.error('Failed to load calendar tasks:', error);
+        if (active) setRangeTasks([]);
+      } finally {
+        if (active) setIsLoadingTasks(false);
+      }
+    };
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [viewMode, currentMonth, currentWeekStart, fetchTasksInRange, tasks]);
+
   const getDayTasks = (date: Date) => {
     const dateStr = format(date, 'yyyy-MM-dd');
-    return tasks.filter((t) => t.scheduledDate === dateStr);
+    return rangeTasks.filter((t) => t.scheduledDate === dateStr);
   };
 
-  const selectedTasks = selectedDate ? getTasksByDate(selectedDate) : [];
+  const selectedTasks = selectedDate ? getDayTasks(selectedDate) : [];
   const selectedIsPast = selectedDate ? isPastDate(selectedDate) : false;
 
   return (
@@ -96,7 +123,7 @@ const CalendarPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Calendar</h1>
+          <h1 className="page-title">Calendar</h1>
           <p className="text-muted-foreground mt-1">View and manage your tasks by date</p>
         </div>
         <Button onClick={() => navigate('/tasks/create')}>
@@ -107,7 +134,7 @@ const CalendarPage: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Calendar */}
-        <div className="lg:col-span-2 glass-card rounded-2xl p-5 sm:p-6">
+        <div className="lg:col-span-2 app-surface p-5 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-4">
             <div className="flex items-center gap-2">
               <Button
@@ -124,7 +151,7 @@ const CalendarPage: React.FC = () => {
               <h2 className="text-lg sm:text-xl font-semibold text-foreground">
                 {viewMode === 'month'
                   ? format(currentMonth, 'MMMM yyyy')
-                  : `${format(weekDays[0], 'MMM d')} � ${format(weekDays[6], 'MMM d')}`}
+                  : `${format(weekDays[0], 'MMM d')} - ${format(weekDays[6], 'MMM d')}`}
               </h2>
               <Button
                 variant="ghost"
@@ -290,7 +317,7 @@ const CalendarPage: React.FC = () => {
 
         {/* Selected day tasks */}
         <div className="space-y-4">
-          <div className="glass-card rounded-2xl p-4">
+          <div className="app-surface p-4">
             <div className="flex items-start justify-between gap-2">
               <div>
                 <h3 className="font-semibold text-foreground mb-1">
@@ -318,12 +345,14 @@ const CalendarPage: React.FC = () => {
             selectedTasks.length > 0 ? (
               <div className="space-y-3">
                 {selectedTasks.map((task) => (
-                  <TaskCard key={task.id} task={task} />
+                  <TaskCard key={`${task.id}-${task.scheduledDate}`} task={task} />
                 ))}
               </div>
             ) : (
-              <div className="glass-card rounded-2xl p-8 text-center">
-                <p className="text-muted-foreground mb-4">No tasks for this date</p>
+              <div className="app-surface p-8 text-center">
+                <p className="text-muted-foreground mb-4">
+                  {isLoadingTasks ? 'Loading tasks...' : 'No tasks for this date'}
+                </p>
                 {!selectedIsPast ? (
                   <Button variant="outline" size="sm" onClick={() => handleAddTaskForDate(selectedDate)}>
                     <Plus className="h-4 w-4 mr-1" />
@@ -335,7 +364,7 @@ const CalendarPage: React.FC = () => {
               </div>
             )
           ) : (
-            <div className="glass-card rounded-2xl p-8 text-center">
+            <div className="app-surface p-8 text-center">
               <p className="text-muted-foreground">Click on a date to view tasks</p>
             </div>
           )}

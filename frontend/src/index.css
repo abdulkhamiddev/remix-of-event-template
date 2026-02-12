@@ -14,6 +14,13 @@
     --background: 0 0% 98%;
     --foreground: 0 0% 9%;
     
+    /* Theme profile tokens */
+    --profile-accent: 0 0% 15%;
+    --profile-accent-soft: 0 0% 92%;
+    --profile-border-alpha: 0.62;
+    --surface-card-alpha: 0.78;
+    --surface-elevated-alpha: 0.9;
+
     /* Glass effect backgrounds */
     --glass: 0 0% 100% / 0.7;
     --glass-border: 0 0% 0% / 0.08;
@@ -40,7 +47,7 @@
     --muted-foreground: 0 0% 45%;
     
     /* Accent - subtle highlight */
-    --accent: 0 0% 92%;
+    --accent: var(--profile-accent-soft);
     --accent-foreground: 0 0% 15%;
     
     /* Status colors */
@@ -59,7 +66,7 @@
     /* Borders and inputs */
     --border: 0 0% 90%;
     --input: 0 0% 90%;
-    --ring: 0 0% 15%;
+    --ring: var(--profile-accent);
     
     /* Radius */
     --radius: 0.75rem;
@@ -69,7 +76,7 @@
     --sidebar-foreground: 0 0% 25%;
     --sidebar-primary: 0 0% 9%;
     --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 0 0% 94%;
+    --sidebar-accent: var(--profile-accent-soft);
     --sidebar-accent-foreground: 0 0% 9%;
     --sidebar-border: 0 0% 90%;
     --sidebar-ring: 0 0% 15%;
@@ -80,6 +87,13 @@
     --background: 0 0% 7%;
     --foreground: 0 0% 95%;
     
+    /* Theme profile tokens */
+    --profile-accent: 0 0% 92%;
+    --profile-accent-soft: 0 0% 18%;
+    --profile-border-alpha: 0.7;
+    --surface-card-alpha: 0.8;
+    --surface-elevated-alpha: 0.92;
+
     /* Glass effect backgrounds */
     --glass: 0 0% 12% / 0.8;
     --glass-border: 0 0% 100% / 0.08;
@@ -106,7 +120,7 @@
     --muted-foreground: 0 0% 60%;
     
     /* Accent */
-    --accent: 0 0% 18%;
+    --accent: var(--profile-accent-soft);
     --accent-foreground: 0 0% 95%;
     
     /* Status colors */
@@ -125,17 +139,59 @@
     /* Borders and inputs */
     --border: 0 0% 18%;
     --input: 0 0% 18%;
-    --ring: 0 0% 85%;
+    --ring: var(--profile-accent);
     
     /* Sidebar */
     --sidebar-background: 0 0% 9% / 0.9;
     --sidebar-foreground: 0 0% 75%;
     --sidebar-primary: 0 0% 95%;
     --sidebar-primary-foreground: 0 0% 9%;
-    --sidebar-accent: 0 0% 15%;
+    --sidebar-accent: var(--profile-accent-soft);
     --sidebar-accent-foreground: 0 0% 95%;
     --sidebar-border: 0 0% 18%;
     --sidebar-ring: 0 0% 85%;
+  }
+
+  :root[data-theme-profile="focus"] {
+    --profile-accent: 0 0% 15%;
+    --profile-accent-soft: 0 0% 92%;
+    --profile-border-alpha: 0.64;
+    --surface-card-alpha: 0.8;
+    --surface-elevated-alpha: 0.92;
+  }
+
+  :root[data-theme-profile="calm"] {
+    --profile-accent: 160 14% 28%;
+    --profile-accent-soft: 165 14% 91%;
+    --profile-border-alpha: 0.5;
+    --surface-card-alpha: 0.74;
+    --surface-elevated-alpha: 0.86;
+  }
+
+  :root[data-theme-profile="energy"] {
+    --profile-accent: 18 84% 40%;
+    --profile-accent-soft: 26 90% 92%;
+    --profile-border-alpha: 0.74;
+    --surface-card-alpha: 0.82;
+    --surface-elevated-alpha: 0.94;
+  }
+
+  .dark[data-theme-profile="focus"] {
+    --profile-accent: 0 0% 94%;
+    --profile-accent-soft: 0 0% 18%;
+    --profile-border-alpha: 0.72;
+  }
+
+  .dark[data-theme-profile="calm"] {
+    --profile-accent: 164 27% 71%;
+    --profile-accent-soft: 165 11% 18%;
+    --profile-border-alpha: 0.58;
+  }
+
+  .dark[data-theme-profile="energy"] {
+    --profile-accent: 28 92% 74%;
+    --profile-accent-soft: 22 22% 19%;
+    --profile-border-alpha: 0.78;
   }
 }
 
@@ -152,12 +208,36 @@
 @layer components {
   /* Glass card effect */
   .glass-card {
-    @apply bg-card/70 backdrop-blur-2xl border border-border/60 shadow-lg shadow-black/5 dark:shadow-black/40;
+    @apply border backdrop-blur-2xl shadow-sm;
+    background-color: hsl(var(--card) / var(--surface-card-alpha));
+    border-color: hsl(var(--border) / var(--profile-border-alpha));
+    box-shadow: 0 10px 28px hsl(var(--foreground) / 0.05);
   }
   
   /* Glass card with hover */
   .glass-card-hover {
-    @apply glass-card transition-all duration-300 hover:shadow-xl hover:bg-card/80 hover:-translate-y-0.5 active:translate-y-0;
+    @apply glass-card transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0;
+  }
+
+  .app-surface {
+    @apply rounded-2xl border backdrop-blur-xl;
+    background-color: hsl(var(--card) / var(--surface-card-alpha));
+    border-color: hsl(var(--border) / var(--profile-border-alpha));
+  }
+
+  .app-surface-elevated {
+    @apply rounded-3xl border backdrop-blur-xl;
+    background-color: hsl(var(--card) / var(--surface-elevated-alpha));
+    border-color: hsl(var(--border) / var(--profile-border-alpha));
+    box-shadow: 0 14px 36px hsl(var(--foreground) / 0.06);
+  }
+
+  .page-title {
+    @apply text-3xl font-semibold tracking-tight text-foreground;
+  }
+
+  .section-label {
+    @apply text-xs uppercase tracking-[0.12em] text-muted-foreground;
   }
   
   /* Sidebar glass effect */

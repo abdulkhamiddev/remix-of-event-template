@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, ListTodo, Calendar, BarChart3, Settings, X, Menu } from 'lucide-react';
+import { LayoutDashboard, ListTodo, Calendar, BarChart3, Settings, ClipboardCheck, X, Menu } from 'lucide-react';
 import { cn } from '@/lib/utils.ts';
 import { Button } from '@/components/ui/button.tsx';
 import { useTheme } from '@/contexts/ThemeContext.tsx';
@@ -15,6 +15,7 @@ const navItems = [
   { path: '/tasks', label: 'Tasks', icon: ListTodo },
   { path: '/calendar', label: 'Calendar', icon: Calendar },
   { path: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { path: '/review', label: 'Weekly Review', icon: ClipboardCheck },
   { path: '/settings', label: 'Settings', icon: Settings },
 ];
 

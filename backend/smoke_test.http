@@ -1,0 +1,72 @@
+@baseUrl = http://localhost:8000
+@email = smoke@example.com
+@password = SmokePass123!
+
+### Register
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### Login
+# @name login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### Get current user
+GET {{baseUrl}}/api/auth/me
+Authorization: Bearer {{login.response.body.access}}
+
+### Create category
+# @name category
+POST {{baseUrl}}/api/categories
+Authorization: Bearer {{login.response.body.access}}
+Content-Type: application/json
+
+{
+  "name": "Smoke Category"
+}
+
+### Create task
+# @name task
+POST {{baseUrl}}/api/tasks
+Authorization: Bearer {{login.response.body.access}}
+Content-Type: application/json
+
+{
+  "title": "Smoke task",
+  "description": "Created from smoke_test.http",
+  "priority": "medium",
+  "scheduledDate": "2026-02-11",
+  "categoryId": {{category.response.body.id}},
+  "hasTimer": true,
+  "timerDuration": 1800,
+  "hasDeadline": true,
+  "deadlineTime": "20:30",
+  "isRecurring": false,
+  "customDays": []
+}
+
+### Complete task
+POST {{baseUrl}}/api/tasks/{{task.response.body.id}}/complete
+Authorization: Bearer {{login.response.body.access}}
+
+### Weekly analytics
+GET {{baseUrl}}/api/analytics/weekly?date=2026-02-11
+Authorization: Bearer {{login.response.body.access}}
+
+### Monthly analytics
+GET {{baseUrl}}/api/analytics/monthly?year=2026&month=02
+Authorization: Bearer {{login.response.body.access}}
+
+### Yearly analytics
+GET {{baseUrl}}/api/analytics/yearly?year=2026
+Authorization: Bearer {{login.response.body.access}}

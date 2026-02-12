@@ -107,20 +107,32 @@ const TaskDetail: React.FC = () => {
     );
   }
 
-  const handleDelete = () => {
-    deleteTask(task.id);
-    toast({ title: 'Task deleted' });
-    navigate('/tasks');
+  const handleDelete = async () => {
+    try {
+      await deleteTask(task.id);
+      toast({ title: 'Task deleted' });
+      navigate('/tasks');
+    } catch (_error) {
+      toast({ title: 'Task error', description: 'Could not delete task.', variant: 'destructive' });
+    }
   };
 
-  const handleComplete = () => {
-    completeTask(task.id);
-    toast({ title: 'Task completed', description: 'Great job!' });
+  const handleComplete = async () => {
+    try {
+      await completeTask(task.id, task.scheduledDate);
+      toast({ title: 'Task completed', description: 'Great job!' });
+    } catch (_error) {
+      toast({ title: 'Task error', description: 'Could not complete task.', variant: 'destructive' });
+    }
   };
 
-  const handleStartTimer = () => {
-    startTimer(task.id);
-    toast({ title: 'Timer started', description: 'Good luck!' });
+  const handleStartTimer = async () => {
+    try {
+      await startTimer(task.id, task.scheduledDate);
+      toast({ title: 'Timer started', description: 'Good luck!' });
+    } catch (_error) {
+      toast({ title: 'Task error', description: 'Could not start timer.', variant: 'destructive' });
+    }
   };
 
   const isOverdue = task.status === 'overdue';

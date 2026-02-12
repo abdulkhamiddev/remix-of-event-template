@@ -1,4 +1,8 @@
 .DS_Store
 node_modules
 backend/.env
-backend/node_modules
+
+backend/.venv
+__pycache__/
+*.py[cod]
+2

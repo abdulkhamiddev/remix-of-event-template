@@ -23,11 +23,17 @@ const Login: React.FC = () => {
   const [fieldErrors, setFieldErrors] = useState<{ identifier?: string; password?: string }>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [telegramHint, setTelegramHint] = useState<string | null>(null);
 
   const redirectTo = useMemo(() => {
     const state = location.state as LocationState | null;
     return state?.from?.pathname || "/";
   }, [location.state]);
+
+  const telegramRequested = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get("provider") === "telegram";
+  }, [location.search]);
 
   const validate = () => {
     const nextErrors: { identifier?: string; password?: string } = {};
@@ -47,6 +53,7 @@ const Login: React.FC = () => {
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError(null);
+    setTelegramHint(null);
 
     if (!validate()) return;
 
@@ -77,6 +84,16 @@ const Login: React.FC = () => {
             {formError && (
               <Alert variant="destructive">
                 <AlertDescription>{formError}</AlertDescription>
+              </Alert>
+            )}
+            {telegramHint && (
+              <Alert>
+                <AlertDescription>{telegramHint}</AlertDescription>
+              </Alert>
+            )}
+            {telegramRequested && !telegramHint && (
+              <Alert>
+                <AlertDescription>Telegram option is available below. Start from Telegram app to use `initData` flow.</AlertDescription>
               </Alert>
             )}
             {isAuthMockEnabled() && (
@@ -120,6 +137,14 @@ const Login: React.FC = () => {
 
               <Button type="submit" className="w-full" disabled={isSubmitting}>
                 {isSubmitting ? "Signing in..." : "Sign in"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => setTelegramHint("Open TaskFlow from Telegram WebApp/Login Widget to continue with Telegram sign-in.")}
+              >
+                Start with Telegram
               </Button>
             </form>
 

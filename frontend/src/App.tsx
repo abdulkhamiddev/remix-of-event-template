@@ -8,13 +8,16 @@ import { ThemeProvider } from "@/contexts/ThemeContext.tsx";
 import { AuthProvider } from "@/contexts/AuthContext.tsx";
 import { MainLayout } from "@/components/layout/MainLayout.tsx";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute.tsx";
+import { PublicLandingRoute } from "@/components/auth/PublicLandingRoute.tsx";
 import Dashboard from "@/pages/Dashboard.tsx";
 import Tasks from "@/pages/Tasks.tsx";
 import TaskCreate from "@/pages/TaskCreate.tsx";
 import TaskDetail from "@/pages/TaskDetail.tsx";
 import CalendarPage from "@/pages/CalendarPage.tsx";
 import Analytics from "@/pages/Analytics.tsx";
+import WeeklyReview from "@/pages/WeeklyReview.tsx";
 import Settings from "@/pages/Settings.tsx";
+import Landing from "@/pages/Landing.tsx";
 import Login from "@/pages/Login.tsx";
 import Register from "@/pages/Register.tsx";
 import ForgotPassword from "@/pages/ForgotPassword.tsx";
@@ -36,6 +39,14 @@ const App = () => (
                 <Route path="/register" element={<Register />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route
+                  path="/landing"
+                  element={
+                    <PublicLandingRoute>
+                      <Landing />
+                    </PublicLandingRoute>
+                  }
+                />
+                <Route
                   element={
                     <ProtectedRoute>
                       <MainLayout />
@@ -48,6 +59,7 @@ const App = () => (
                   <Route path="/tasks/:id" element={<TaskDetail />} />
                   <Route path="/calendar" element={<CalendarPage />} />
                   <Route path="/analytics" element={<Analytics />} />
+                  <Route path="/review" element={<WeeklyReview />} />
                   <Route path="/settings" element={<Settings />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />

@@ -89,22 +89,30 @@ const TaskCreate: React.FC = () => {
     return format(minTime, 'HH:mm');
   }, [scheduledDate]);
 
-  const handleAddCategory = () => {
+  const handleAddCategory = async () => {
     if (!newCategoryName.trim()) return;
-    addCategory(newCategoryName.trim());
-    setCategory(newCategoryName.trim());
-    setNewCategoryName('');
-    toast({ title: 'Category created', description: `"${newCategoryName}" has been added.` });
+    try {
+      const created = await addCategory(newCategoryName.trim());
+      setCategory(created.name);
+      setNewCategoryName('');
+      toast({ title: 'Category created', description: `"${created.name}" has been added.` });
+    } catch (error) {
+      toast({ title: 'Category error', description: 'Could not create category.', variant: 'destructive' });
+    }
   };
 
-  const handleUpdateCategory = () => {
+  const handleUpdateCategory = async () => {
     if (!editingCategory || !editingCategory.name.trim()) return;
-    updateCategory(editingCategory.id, editingCategory.name.trim());
-    setEditingCategory(null);
-    toast({ title: 'Category updated' });
+    try {
+      await updateCategory(editingCategory.id, editingCategory.name.trim());
+      setEditingCategory(null);
+      toast({ title: 'Category updated' });
+    } catch (_error) {
+      toast({ title: 'Category error', description: 'Could not update category.', variant: 'destructive' });
+    }
   };
 
-  const handleDeleteCategory = (id: string) => {
+  const handleDeleteCategory = async (id: string) => {
     const cat = categories.find((c) => c.id === id);
     if (!cat) return;
     
@@ -113,16 +121,20 @@ const TaskCreate: React.FC = () => {
       return;
     }
 
-    const success = deleteCategory(id);
-    if (success) {
-      toast({ title: 'Category deleted' });
-      if (category === cat.name) {
-        setCategory('Study');
+    try {
+      const success = await deleteCategory(id);
+      if (success) {
+        toast({ title: 'Category deleted' });
+        if (category === cat.name) {
+          setCategory('Study');
+        }
       }
+    } catch (_error) {
+      toast({ title: 'Category error', description: 'Could not delete category.', variant: 'destructive' });
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!title.trim()) {
@@ -138,24 +150,28 @@ const TaskCreate: React.FC = () => {
 
     const timerDuration = hasTimer ? (timerHours * 3600) + (timerMinutes * 60) : 0;
 
-    addTask({
-      title: title.trim(),
-      description: description.trim(),
-      priority,
-      scheduledDate: format(finalDate, 'yyyy-MM-dd'),
-      category,
-      hasTimer,
-      timerDuration,
-      timerRemaining: timerDuration,
-      hasDeadline,
-      deadlineTime: hasDeadline ? deadlineTime : '',
-      isRecurring,
-      recurringPattern: isRecurring ? recurringPattern : null,
-      customDays: isRecurring && recurringPattern === 'custom' ? customDays : [],
-    });
+    try {
+      await addTask({
+        title: title.trim(),
+        description: description.trim(),
+        priority,
+        scheduledDate: format(finalDate, 'yyyy-MM-dd'),
+        category,
+        hasTimer,
+        timerDuration,
+        timerRemaining: timerDuration,
+        hasDeadline,
+        deadlineTime: hasDeadline ? deadlineTime : '',
+        isRecurring,
+        recurringPattern: isRecurring ? recurringPattern : null,
+        customDays: isRecurring && recurringPattern === 'custom' ? customDays : [],
+      });
 
-    toast({ title: 'Task created', description: `"${title}" has been added to your tasks.` });
-    navigate('/tasks');
+      toast({ title: 'Task created', description: `"${title}" has been added to your tasks.` });
+      navigate('/tasks');
+    } catch (_error) {
+      toast({ title: 'Task error', description: 'Could not create task.', variant: 'destructive' });
+    }
   };
 
   const toggleCustomDay = (day: number) => {

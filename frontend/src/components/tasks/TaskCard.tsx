@@ -78,10 +78,26 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, showDate = false }) =>
     ? timerDisplay || formatSeconds(task.timerRemaining)
     : formatSeconds(task.timerDuration);
 
+  const handleStartTimer = async () => {
+    try {
+      await startTimer(task.id, task.scheduledDate);
+    } catch (error) {
+      console.error("Failed to start timer:", error);
+    }
+  };
+
+  const handleComplete = async () => {
+    try {
+      await completeTask(task.id, task.scheduledDate);
+    } catch (error) {
+      console.error("Failed to complete task:", error);
+    }
+  };
+
   return (
     <div
       className={cn(
-        'glass-card-hover rounded-2xl p-5 space-y-4',
+        'app-surface p-5 space-y-4 transition-smooth hover:-translate-y-0.5',
         task.status === 'overdue' && 'border-destructive/30 bg-destructive/5'
       )}
     >
@@ -188,14 +204,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, showDate = false }) =>
         </Button>
 
         {canStartTimer && (
-          <Button size="sm" className="flex-1" onClick={() => startTimer(task.id)}>
+          <Button size="sm" className="flex-1" onClick={handleStartTimer}>
             <Play className="h-4 w-4 mr-1" />
             Start Task
           </Button>
         )}
 
         {canComplete && !canStartTimer && (
-          <Button size="sm" variant="default" className="flex-1" onClick={() => completeTask(task.id)}>
+          <Button size="sm" variant="default" className="flex-1" onClick={handleComplete}>
             <Check className="h-4 w-4 mr-1" />
             Mark as Completed
           </Button>

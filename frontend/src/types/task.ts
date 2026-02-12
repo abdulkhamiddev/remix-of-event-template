@@ -31,6 +31,7 @@ export interface Category {
 
 export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
+  themeProfile: 'focus' | 'calm' | 'energy';
   sidebarCollapsed: boolean;
   animationIntensity: 'full' | 'reduced';
   dateFormat: 'MM/DD/YYYY' | 'DD/MM/YYYY' | 'YYYY-MM-DD';
@@ -43,6 +44,7 @@ export const DEFAULT_CATEGORIES: Category[] = [
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
+  themeProfile: 'focus',
   sidebarCollapsed: false,
   animationIntensity: 'full',
   dateFormat: 'MM/DD/YYYY',

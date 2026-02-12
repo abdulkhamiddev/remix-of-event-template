@@ -1,10 +1,11 @@
-import React from 'react';
-import { Moon, Sun, Monitor, Palette, Calendar, Clock, Sidebar } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Moon, Sun, Monitor, Palette, Calendar, Clock, Sidebar, Flame } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext.tsx';
 import { AppSettings } from '@/types/task.ts';
 import { Button } from '@/components/ui/button.tsx';
 import { Label } from '@/components/ui/label.tsx';
 import { Switch } from '@/components/ui/switch.tsx';
+import { Input } from '@/components/ui/input.tsx';
 import {
   Select,
   SelectContent,
@@ -13,15 +14,76 @@ import {
   SelectValue,
 } from '@/components/ui/select.tsx';
 import { cn } from '@/lib/utils.ts';
+import { apiFetch } from '@/lib/apiClient.ts';
+import { toast } from '@/hooks/use-toast.ts';
+
+interface SettingsApiResponse {
+  minDailyTasks?: number;
+  streakThresholdPercent?: number;
+}
 
 const Settings: React.FC = () => {
   const { settings, updateSettings, effectiveTheme } = useTheme();
+  const [minDailyTasks, setMinDailyTasks] = useState<number>(3);
+  const [thresholdPercent, setThresholdPercent] = useState<number>(80);
+  const [isSavingStreak, setIsSavingStreak] = useState<boolean>(false);
 
   const themeOptions: { value: AppSettings['theme']; label: string; icon: React.ReactNode }[] = [
     { value: 'light', label: 'Light', icon: <Sun className="h-4 w-4" /> },
     { value: 'dark', label: 'Dark', icon: <Moon className="h-4 w-4" /> },
     { value: 'system', label: 'System', icon: <Monitor className="h-4 w-4" /> },
   ];
+
+  const themeProfiles: { value: AppSettings['themeProfile']; label: string; description: string }[] = [
+    { value: 'focus', label: 'Focus', description: 'High contrast and low distraction.' },
+    { value: 'calm', label: 'Calm', description: 'Softer surfaces with lower visual tension.' },
+    { value: 'energy', label: 'Energy', description: 'Sharper accents for active planning.' },
+  ];
+
+  useEffect(() => {
+    let active = true;
+
+    const loadStreakSettings = async () => {
+      try {
+        const payload = await apiFetch<SettingsApiResponse>('/api/settings');
+        if (!active) return;
+        setMinDailyTasks(payload.minDailyTasks ?? 3);
+        setThresholdPercent(payload.streakThresholdPercent ?? 80);
+      } catch (_error) {
+        if (!active) return;
+        setMinDailyTasks(3);
+        setThresholdPercent(80);
+      }
+    };
+
+    loadStreakSettings();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const saveStreakSettings = async () => {
+    const safeMin = Number.isFinite(minDailyTasks) ? Math.max(1, Math.floor(minDailyTasks)) : 3;
+    const safeThreshold = Number.isFinite(thresholdPercent) ? Math.min(100, Math.max(1, Math.floor(thresholdPercent))) : 80;
+
+    setIsSavingStreak(true);
+    try {
+      await apiFetch('/api/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          minDailyTasks: safeMin,
+          streakThresholdPercent: safeThreshold,
+        }),
+      });
+      setMinDailyTasks(safeMin);
+      setThresholdPercent(safeThreshold);
+      toast({ title: 'Streak settings saved' });
+    } catch (_error) {
+      toast({ title: 'Save failed', description: 'Could not update streak settings.', variant: 'destructive' });
+    } finally {
+      setIsSavingStreak(false);
+    }
+  };
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -60,6 +122,26 @@ const Settings: React.FC = () => {
               Currently using: {effectiveTheme} theme
             </p>
           )}
+        </div>
+
+        <div className="space-y-3">
+          <Label>Theme Profile</Label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {themeProfiles.map((profile) => (
+              <button
+                key={profile.value}
+                type="button"
+                onClick={() => updateSettings({ themeProfile: profile.value })}
+                className={cn(
+                  "rounded-xl border p-3 text-left transition-smooth",
+                  settings.themeProfile === profile.value ? "border-primary/50 bg-primary/10" : "border-border/60 bg-card/70"
+                )}
+              >
+                <p className="text-sm font-medium text-foreground">{profile.label}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{profile.description}</p>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="flex items-center justify-between">
@@ -144,13 +226,55 @@ const Settings: React.FC = () => {
         </div>
       </div>
 
+      {/* Streak */}
+      <div className="glass-card rounded-xl p-6 space-y-6">
+        <div className="flex items-center gap-3">
+          <Flame className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-lg font-semibold text-foreground">Streak Rules</h2>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="minDailyTasks">MIN_DAILY_TASKS</Label>
+            <Input
+              id="minDailyTasks"
+              type="number"
+              min={1}
+              value={minDailyTasks}
+              onChange={(event) => setMinDailyTasks(Number(event.target.value || 0))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="thresholdPercent">THRESHOLD (%)</Label>
+            <Input
+              id="thresholdPercent"
+              type="number"
+              min={1}
+              max={100}
+              value={thresholdPercent}
+              onChange={(event) => setThresholdPercent(Number(event.target.value || 0))}
+            />
+          </div>
+        </div>
+
+        <p className="text-sm text-muted-foreground">
+          A day qualifies if scheduled tasks are at least MIN_DAILY_TASKS and completion ratio is at least THRESHOLD.
+        </p>
+
+        <div className="flex justify-end">
+          <Button onClick={saveStreakSettings} disabled={isSavingStreak}>
+            {isSavingStreak ? 'Saving...' : 'Save Streak Rules'}
+          </Button>
+        </div>
+      </div>
+
       {/* About */}
       <div className="glass-card rounded-xl p-6 space-y-4">
         <h2 className="text-lg font-semibold text-foreground">About</h2>
         <div className="space-y-2 text-sm text-muted-foreground">
           <p><strong>TaskFlow</strong> v1.0</p>
-          <p>A premium task management application with liquid glass UI.</p>
-          <p>All data is stored locally in your browser.</p>
+          <p>A premium task management application with occurrence-based productivity analytics.</p>
+          <p>Preferences sync with your account when you are signed in.</p>
         </div>
       </div>
     </div>

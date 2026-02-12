@@ -85,6 +85,7 @@ const normalizeProductivePeriod = (
     completed: toNumber(record.completed ?? record.completed_tasks),
     total: toNumber(record.total ?? record.total_tasks),
     rate: toNumber(record.rate ?? record.productivity ?? record.completion_rate),
+    kind: typeof record.kind === "string" ? record.kind : undefined,
   };
 };
 

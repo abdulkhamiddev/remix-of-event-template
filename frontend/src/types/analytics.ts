@@ -27,6 +27,7 @@ export interface AnalyticsProductivePeriod {
   completed: number;
   total: number;
   rate: number;
+  kind?: string;
 }
 
 export interface AnalyticsPayload {

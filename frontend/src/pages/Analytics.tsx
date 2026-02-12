@@ -185,11 +185,27 @@ const Analytics: React.FC = () => {
   }, [accessToken, timeFilter, selectedDate, selectedMonth, selectedYear]);
 
   const topProductivePeriod = useMemo(() => {
-    return analytics.productivePeriods.reduce<(typeof analytics.productivePeriods)[number] | null>((best, current) => {
+    const monthlyLabelPattern = /^(?:[1-9]|[12][0-9]|3[01])$/;
+    const source = analytics.productivePeriods.filter((period) => {
+      if (timeFilter !== "monthly") return true;
+      if (period.kind) return period.kind === "dayOfMonth";
+      return monthlyLabelPattern.test(period.label);
+    });
+
+    return source.reduce<(typeof source)[number] | null>((best, current) => {
       if (!best || current.rate > best.rate) return current;
       return best;
     }, null);
-  }, [analytics.productivePeriods]);
+  }, [analytics.productivePeriods, timeFilter]);
+
+  const productivePeriods = useMemo(() => {
+    const monthlyLabelPattern = /^(?:[1-9]|[12][0-9]|3[01])$/;
+    return analytics.productivePeriods.filter((period) => {
+      if (timeFilter !== "monthly") return true;
+      if (period.kind) return period.kind === "dayOfMonth";
+      return monthlyLabelPattern.test(period.label);
+    });
+  }, [analytics.productivePeriods, timeFilter]);
 
   const pickerControl = useMemo(() => {
     if (timeFilter === "weekly") {
@@ -230,7 +246,7 @@ const Analytics: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Analytics</h1>
+          <h1 className="page-title">Analytics</h1>
           <p className="text-muted-foreground mt-1">Track your productivity and task completion</p>
           <div className="text-xs text-muted-foreground mt-2 flex items-center gap-2">
             <Calendar className="h-3 w-3" />
@@ -255,15 +271,15 @@ const Analytics: React.FC = () => {
       </div>
 
       {error && (
-        <div className="glass-card rounded-2xl p-4 border-destructive/30 text-sm text-destructive">{error}</div>
+        <div className="app-surface rounded-2xl p-4 border-destructive/30 text-sm text-destructive">{error}</div>
       )}
 
       {isLoading ? (
-        <div className="glass-card rounded-2xl p-6 text-muted-foreground">Loading analytics...</div>
+        <div className="app-surface rounded-2xl p-6 text-muted-foreground">Loading analytics...</div>
       ) : (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="glass-card rounded-2xl p-6">
+            <div className="app-surface p-6">
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 rounded-lg bg-primary/10">
                   <Target className="h-5 w-5 text-primary" />
@@ -273,7 +289,7 @@ const Analytics: React.FC = () => {
               <p className="text-3xl font-bold text-foreground">{analytics.stats.productivity}%</p>
             </div>
 
-            <div className="glass-card rounded-2xl p-6">
+            <div className="app-surface p-6">
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 rounded-lg bg-success/10">
                   <CheckCircle className="h-5 w-5 text-success" />
@@ -283,7 +299,7 @@ const Analytics: React.FC = () => {
               <p className="text-3xl font-bold text-foreground">{analytics.stats.completed}</p>
             </div>
 
-            <div className="glass-card rounded-2xl p-6">
+            <div className="app-surface p-6">
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 rounded-lg bg-destructive/10">
                   <AlertTriangle className="h-5 w-5 text-destructive" />
@@ -293,7 +309,7 @@ const Analytics: React.FC = () => {
               <p className="text-3xl font-bold text-foreground">{analytics.stats.overdue}</p>
             </div>
 
-            <div className="glass-card rounded-2xl p-6">
+            <div className="app-surface p-6">
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 rounded-lg bg-accent">
                   <BarChart3 className="h-5 w-5 text-foreground" />
@@ -305,7 +321,7 @@ const Analytics: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="glass-card rounded-2xl p-6">
+            <div className="app-surface p-6">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-semibold text-foreground">Productivity Trend</h3>
                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
@@ -343,7 +359,7 @@ const Analytics: React.FC = () => {
               </div>
             </div>
 
-            <div className="glass-card rounded-2xl p-6">
+            <div className="app-surface p-6">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-semibold text-foreground">Completed vs Overdue</h3>
                 <LineChartIcon className="h-4 w-4 text-muted-foreground" />
@@ -377,7 +393,7 @@ const Analytics: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="glass-card rounded-2xl p-6">
+            <div className="app-surface p-6">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-semibold text-foreground">Category Distribution</h3>
                 <BarChart3 className="h-4 w-4 text-muted-foreground" />
@@ -412,7 +428,7 @@ const Analytics: React.FC = () => {
               )}
             </div>
 
-            <div className="glass-card rounded-2xl p-6">
+            <div className="app-surface p-6">
               <h3 className="text-lg font-semibold text-foreground mb-2">{mostProductiveTitle(timeFilter)}</h3>
               {topProductivePeriod && (
                 <p className="text-sm text-muted-foreground mb-4">
@@ -429,7 +445,7 @@ const Analytics: React.FC = () => {
                     : "grid-cols-7"
                 )}
               >
-                {analytics.productivePeriods.map((period) => (
+                {productivePeriods.map((period) => (
                   <div
                     key={period.label}
                     className={cn(
@@ -445,14 +461,14 @@ const Analytics: React.FC = () => {
                   </div>
                 ))}
               </div>
-              {analytics.productivePeriods.length === 0 && (
+              {productivePeriods.length === 0 && (
                 <div className="text-sm text-muted-foreground py-4">No productivity data for this period.</div>
               )}
             </div>
           </div>
 
           {analytics.stats.overdue > 0 && analytics.stats.total > 0 && (
-            <div className="glass-card rounded-2xl p-6 border-destructive/30">
+            <div className="app-surface p-6 border-destructive/30">
               <div className="flex items-start gap-4">
                 <div className="p-3 rounded-lg bg-destructive/10">
                   <AlertTriangle className="h-6 w-6 text-destructive" />
