@@ -1,0 +1,159 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <style>
+    /* Scoped styles for this page only */
+    .tf-wrap { max-width: 1100px; margin: 0 auto; }
+    .tf-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin: 8px 0 18px;
+      padding: 18px 18px;
+      border-radius: 12px;
+      background: var(--body-bg, #fff);
+      border: 1px solid rgba(0,0,0,.08);
+      box-shadow: 0 1px 0 rgba(0,0,0,.02);
+    }
+    .tf-header h1 { margin: 0 0 6px; font-size: 28px; line-height: 1.15; }
+    .tf-sub { margin: 0; opacity: .78; max-width: 70ch; }
+
+    .tf-actions { display:flex; gap:10px; flex-wrap: wrap; }
+    .tf-pill {
+      display: inline-flex; align-items:center; gap:8px;
+      padding: 8px 12px; border-radius: 999px;
+      border: 1px solid rgba(0,0,0,.10);
+      background: rgba(0,0,0,.02);
+      font-size: 13px; opacity: .9;
+      white-space: nowrap;
+    }
+
+    .tf-card {
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid rgba(0,0,0,.08);
+      background: var(--body-bg, #fff);
+    }
+
+    .tf-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .tf-table thead th {
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-size: 12px;
+      opacity: .7;
+      padding: 12px 14px;
+      background: rgba(0,0,0,.02);
+      border-bottom: 1px solid rgba(0,0,0,.06);
+      white-space: nowrap;
+    }
+    .tf-table tbody td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(0,0,0,.06);
+      vertical-align: middle;
+    }
+    .tf-table tbody tr:hover td { background: rgba(0,0,0,.015); }
+
+    .tf-user {
+      display:flex; flex-direction: column;
+      gap: 2px;
+      min-width: 260px;
+    }
+    .tf-user strong { font-size: 14px; }
+    .tf-meta { font-size: 12px; opacity: .7; }
+
+    .tf-count {
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+      padding: 6px 10px;
+      border-radius: 999px;
+      display: inline-block;
+      background: rgba(0,0,0,.04);
+      border: 1px solid rgba(0,0,0,.08);
+    }
+
+    .tf-btn {
+      display:inline-flex; align-items:center; justify-content:center;
+      gap:8px;
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(0,0,0,.12);
+      background: #111;
+      color: #fff !important;
+      text-decoration: none !important;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .tf-btn:hover { filter: brightness(1.05); }
+    .tf-btn:active { transform: translateY(1px); }
+
+    .tf-empty { padding: 18px; opacity: .8; }
+
+    @media (max-width: 720px) {
+      .tf-header { flex-direction: column; }
+      .tf-user { min-width: 0; }
+      .tf-table thead { display: none; }
+      .tf-table tbody tr { display:block; border-bottom: 1px solid rgba(0,0,0,.06); }
+      .tf-table tbody td { display:flex; justify-content: space-between; gap:12px; }
+      .tf-table tbody td:last-child { justify-content: flex-end; }
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+  <div class="tf-wrap">
+    <div class="tf-header">
+      <div>
+        <h1>{{ title }}</h1>
+        <p class="tf-sub">
+          Select a user to view only their tasks. This avoids a noisy admin when many users have many tasks.
+        </p>
+      </div>
+
+      <div class="tf-actions">
+        <span class="tf-pill">Tip: sort by counts and drill down</span>
+      </div>
+    </div>
+
+    <div class="tf-card">
+      {% if rows %}
+        <table class="tf-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th style="width: 140px;">Tasks</th>
+              <th style="width: 140px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td>
+                  <div class="tf-user">
+                    <strong>{{ row.label }}</strong>
+                    {% if row.sub %}
+                      <span class="tf-meta">{{ row.sub }}</span>
+                    {% endif %}
+                  </div>
+                </td>
+                <td><span class="tf-count">{{ row.count }}</span></td>
+                <td style="text-align:right;">
+                  <a class="tf-btn" href="{{ row.view_url }}">View →</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="tf-empty">
+          No users with tasks yet.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}
