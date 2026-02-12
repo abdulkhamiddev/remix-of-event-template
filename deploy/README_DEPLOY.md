@@ -36,11 +36,15 @@ Update at least:
 - `DJANGO_ALLOWED_HOSTS`
 - `CORS_ALLOWED_ORIGINS`
 - `CSRF_TRUSTED_ORIGINS`
+- `PUBLIC_APP_URL`
+- `DJANGO_SECURE_SSL_REDIRECT=True`
+- `SESSION_COOKIE_SECURE=True`
+- `CSRF_COOKIE_SECURE=True`
+- `DJANGO_SECURE_HSTS_SECONDS=31536000`
 - `POSTGRES_PASSWORD`
 - `REDIS_URL`
 - `SENDGRID_API_KEY`
 - `DEFAULT_FROM_EMAIL`
-- `PUBLIC_APP_URL` (must point to frontend origin where `/reset-password` exists)
 
 Do not use `*` in CORS/CSRF for production.
 

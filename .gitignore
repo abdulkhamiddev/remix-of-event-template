@@ -1,8 +1,10 @@
 .DS_Store
 node_modules
 backend/.env
+deploy/env/.env.backend
+deploy/env/.env.db
+deploy/env/.env.edge
 
 backend/.venv
 __pycache__/
 *.py[cod]
-2
