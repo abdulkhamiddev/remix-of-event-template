@@ -10,6 +10,8 @@ from uuid import uuid4
 from redis.exceptions import WatchError
 from django_redis import get_redis_connection
 
+from apps.common.ip import request_ip
+
 
 class RateLimitExceeded(Exception):
     def __init__(self, retry_after: int) -> None:
@@ -36,13 +38,6 @@ def parse_rate(rate: str) -> tuple[int, int]:
     if limit <= 0:
         raise ValueError("Rate limit must be greater than zero.")
     return limit, _UNIT_SECONDS[unit]
-
-
-def request_ip(request) -> str:
-    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
-    return (request.META.get("REMOTE_ADDR") or "").strip() or "unknown"
 
 
 def _rate_key(scope: str, rule_name: str, identifier: str) -> str:

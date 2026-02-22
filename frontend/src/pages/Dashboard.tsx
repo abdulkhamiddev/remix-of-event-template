@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, CheckCircle, Clock, ClipboardList, ListChecks, Flame, Compass, TriangleAlert, Sparkles, Target } from 'lucide-react';
-import { useTaskContext } from '@/contexts/TaskContext.tsx';
 import { TaskCard } from '@/components/tasks/TaskCard.tsx';
 import { KPICard } from '@/components/tasks/KPICard.tsx';
 import { Button } from '@/components/ui/button.tsx';
@@ -11,25 +10,53 @@ import { getTodaySuggestions } from '@/lib/suggestionsApi.ts';
 import { apiFetch } from '@/lib/apiClient.ts';
 import type { StreakTodayResponse } from '@/types/streak.ts';
 import type { TodaySuggestion } from '@/types/suggestions.ts';
+import type { Task } from '@/types/task.ts';
 
 interface SettingsResponse {
   minDailyTasks?: number;
   streakThresholdPercent?: number;
 }
 
+interface TaskPagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+interface TaskListResponse {
+  items: Task[];
+  pagination: TaskPagination;
+}
+
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { getTodaysTasks } = useTaskContext();
   const [streakToday, setStreakToday] = useState<StreakTodayResponse | null>(null);
+  const [todayTasks, setTodayTasks] = useState<Task[]>([]);
+  const [isTodayTasksLoading, setIsTodayTasksLoading] = useState<boolean>(true);
   const [todaySuggestions, setTodaySuggestions] = useState<TodaySuggestion[]>([]);
   const [isSuggestionsLoading, setIsSuggestionsLoading] = useState<boolean>(true);
   const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
   const [minDailyTasks, setMinDailyTasks] = useState<number>(3);
 
-  const todaysTasks = getTodaysTasks();
-  const completedToday = todaysTasks.filter((t) => t.status === 'completed').length;
-  const totalToday = todaysTasks.length;
-  const remainingToday = todaysTasks.filter((t) => t.status !== 'completed').length;
+  const loadTodayTasks = useCallback(async () => {
+    try {
+      const payload = await apiFetch<TaskListResponse>('/api/tasks/today');
+      setTodayTasks(payload.items);
+    } catch (_error) {
+      setTodayTasks([]);
+    } finally {
+      setIsTodayTasksLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTodayTasks();
+  }, [loadTodayTasks]);
+
+  const completedToday = todayTasks.filter((t) => t.status === 'completed').length;
+  const totalToday = todayTasks.length;
+  const remainingToday = todayTasks.filter((t) => t.status !== 'completed').length;
   const productivity = totalToday > 0 ? Math.round((completedToday / totalToday) * 100) : 0;
 
   useEffect(() => {
@@ -204,7 +231,11 @@ const Dashboard: React.FC = () => {
           </Button>
         </div>
 
-        {todaysTasks.length === 0 ? (
+        {isTodayTasksLoading ? (
+          <div className="app-surface p-12 text-center">
+            <p className="text-muted-foreground">Loading today&apos;s tasks...</p>
+          </div>
+        ) : todayTasks.length === 0 ? (
           <div className="app-surface p-12 text-center">
             <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
               <CheckCircle className="h-8 w-8 text-muted-foreground" />
@@ -222,8 +253,8 @@ const Dashboard: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {todaysTasks.map((task) => (
-              <TaskCard key={task.id} task={task} />
+            {todayTasks.map((task) => (
+              <TaskCard key={task.occurrenceKey ?? `${task.id}-${task.scheduledDate}`} task={task} onTaskMutated={loadTodayTasks} />
             ))}
           </div>
         )}

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Alert, AlertDescription } from "@/components/ui/alert.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -16,11 +16,31 @@ const ResetPassword: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [token, setToken] = useState("");
+  const handledRef = useRef(false);
 
-  const token = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    return params.get("token") ?? "";
-  }, [location.search]);
+  useEffect(() => {
+    if (handledRef.current) return;
+    handledRef.current = true;
+
+    const hashParams = new URLSearchParams((location.hash || "").replace(/^#/, ""));
+    const queryParams = new URLSearchParams(location.search);
+    const extracted = hashParams.get("token") || queryParams.get("token") || "";
+    setToken(extracted);
+
+    if (!extracted) return;
+
+    // Scrub token from URL immediately (prevents Referer/history leakage).
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("token");
+      url.hash = "";
+      const scrubbed = url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : "");
+      window.history.replaceState({}, document.title, scrubbed);
+    } catch {
+      // Ignore URL parsing failures; token still handled in-memory.
+    }
+  }, [location.hash, location.search]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import time
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 from urllib.parse import parse_qsl
@@ -11,7 +12,9 @@ from django.contrib.auth.hashers import check_password
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from django.http import JsonResponse
 from django.utils import timezone
+from django_redis import get_redis_connection
 from ninja import Router
 
 from apps.accounts.models import PasswordResetToken, RefreshToken
@@ -34,11 +37,52 @@ from apps.accounts.telegram_magic import consume_magic_token, get_magic_link_lim
 from apps.accounts.telegram_notify import send_login_success_message
 from apps.common.auth import JWTAuth
 from apps.common.exceptions import APIError
+from apps.common.ip import request_ip
 from apps.common.jwt import JWTDecodeError, create_access_token, create_refresh_token, decode_token
-from apps.common.rate_limit import RateLimitRule, rate_limit_rules, request_ip
+from apps.common.rate_limit import RateLimitRule, rate_limit_rules
 
 router = Router(tags=["auth"])
 User = get_user_model()
+
+
+def _cookie_samesite(value: str) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in {"strict", "lax", "none"}:
+        return normalized.title()
+    return "Lax"
+
+
+def _set_refresh_cookies(response, *, refresh_token: str, refresh_jti: str) -> None:
+    # Refresh token cookie: HttpOnly, narrow path, used only for /api/auth/refresh rotation.
+    max_age = max(1, int(settings.JWT_REFRESH_TTL_DAYS)) * 86400
+    secure = bool(getattr(settings, "AUTH_COOKIE_SECURE", not settings.DEBUG))
+    samesite = _cookie_samesite(getattr(settings, "AUTH_COOKIE_SAMESITE", "Lax"))
+
+    response.set_cookie(
+        settings.AUTH_REFRESH_COOKIE_NAME,
+        refresh_token,
+        max_age=max_age,
+        httponly=True,
+        secure=secure,
+        samesite=samesite,
+        path="/api/auth/refresh",
+    )
+
+    # Session id cookie: allows logout to revoke the current refresh session without exposing refresh token to JS.
+    response.set_cookie(
+        settings.AUTH_REFRESH_SESSION_COOKIE_NAME,
+        refresh_jti,
+        max_age=max_age,
+        httponly=True,
+        secure=secure,
+        samesite=samesite,
+        path="/api/auth",
+    )
+
+
+def _clear_refresh_cookies(response) -> None:
+    response.delete_cookie(settings.AUTH_REFRESH_COOKIE_NAME, path="/api/auth/refresh")
+    response.delete_cookie(settings.AUTH_REFRESH_SESSION_COOKIE_NAME, path="/api/auth")
 
 
 def _normalize_identifier(email: str | None, username: str | None) -> tuple[str | None, str | None]:
@@ -74,6 +118,65 @@ def _serialize_user(user) -> AuthUserOut:
         username=user.username or None,
         displayName=display_name,
     )
+
+
+def _serialize_user_json(user) -> dict:
+    """
+    JsonResponse cannot serialize Ninja/Pydantic schema objects directly.
+    Keep _serialize_user() for Ninja response models, but use this helper
+    whenever returning a Django JsonResponse.
+    """
+    out = _serialize_user(user)
+    if hasattr(out, "model_dump"):
+        return out.model_dump()  # pydantic v2
+    if hasattr(out, "dict"):
+        return out.dict()  # pydantic v1 fallback
+    # Defensive fallback; should not happen.
+    return {"id": str(getattr(user, "id", ""))}
+
+
+def _stable_password_error_code(django_code: str) -> str:
+    mapping = {
+        "password_too_short": "min_length",
+        "password_too_common": "common_password",
+        "password_entirely_numeric": "numeric_only",
+        "password_too_similar": "too_similar",
+    }
+    return mapping.get(django_code, "invalid")
+
+
+def _stable_password_error_message(django_code: str, params: dict, fallback: str) -> str:
+    if django_code == "password_too_short":
+        min_length = int(params.get("min_length", 8) or 8)
+        return f"Password must be at least {min_length} characters."
+    if django_code == "password_too_common":
+        return "Password is too common."
+    if django_code == "password_entirely_numeric":
+        return "Password cannot be entirely numeric."
+    if django_code == "password_too_similar":
+        return "Password is too similar to your account information."
+    return fallback or "Password is invalid."
+
+
+def _serialize_password_validation_errors(exc: DjangoValidationError) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for err in getattr(exc, "error_list", []) or []:
+        django_code = str(getattr(err, "code", "") or "")
+        params = getattr(err, "params", {}) or {}
+        fallback = err.messages[0] if getattr(err, "messages", None) else "Password is invalid."
+        items.append(
+            {
+                "code": _stable_password_error_code(django_code),
+                "message": _stable_password_error_message(django_code, params, fallback),
+            }
+        )
+
+    if not items:
+        for message in getattr(exc, "messages", []) or []:
+            items.append({"code": "invalid", "message": str(message)})
+    if not items:
+        items.append({"code": "invalid", "message": "Password is invalid."})
+    return items
 
 
 def _resolve_display_name(first_name: str | None, username: str | None, telegram_id: int) -> str:
@@ -126,8 +229,7 @@ def _get_or_create_user_from_magic_link(link) -> User:
 
 def _request_meta(request) -> tuple[str, str]:
     user_agent = request.headers.get("user-agent", "")[:255]
-    ip_address = (request.META.get("HTTP_X_FORWARDED_FOR") or request.META.get("REMOTE_ADDR") or "").split(",")[0].strip()
-    return user_agent, ip_address or ""
+    return user_agent, request_ip(request)
 
 
 def _hash_refresh_token(token: str) -> str:
@@ -144,6 +246,30 @@ def _payload_from_args(args: tuple[object, ...], kwargs: dict[str, object], key:
 
 def _rate_key_ip(request, _args: tuple[object, ...], _kwargs: dict[str, object]) -> str:
     return request_ip(request)
+
+
+def _rate_key_login_identifier(request, args: tuple[object, ...], kwargs: dict[str, object]) -> str | None:
+    payload = _payload_from_args(args, kwargs, "payload")
+    if not payload:
+        return None
+    email, username = _normalize_identifier(getattr(payload, "email", None), getattr(payload, "username", None))
+    if email:
+        return f"email:{email}"
+    if username:
+        return f"username:{username.strip().lower()}"
+    return None
+
+
+def _rate_key_forgot_identifier(request, args: tuple[object, ...], kwargs: dict[str, object]) -> str | None:
+    payload = _payload_from_args(args, kwargs, "payload")
+    if not payload:
+        return None
+    raw = (getattr(payload, "emailOrUsername", "") or "").strip()
+    if not raw:
+        return None
+    if "@" in raw:
+        return f"email:{raw.lower()}"
+    return f"username:{raw.lower()}"
 
 
 def _rate_key_refresh_user_or_ip(request, args: tuple[object, ...], kwargs: dict[str, object]) -> str:
@@ -208,7 +334,7 @@ def _issue_tokens(user, request) -> tuple[dict, RefreshToken]:
         user_agent=user_agent,
         ip_address=ip_address or None,
     )
-    return {"access": access, "refresh": refresh}, token_record
+    return {"access": access, "refresh": refresh, "refresh_jti": str(refresh_payload["jti"])}, token_record
 
 
 def _revoke_token(token_record: RefreshToken, replaced_by: RefreshToken | None = None) -> None:
@@ -250,7 +376,39 @@ def _verify_telegram_hash(init_data: str) -> dict[str, str]:
     expected_hash = hmac.new(secret, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(expected_hash, incoming_hash):
         raise APIError("Telegram auth hash is invalid.", code="invalid_telegram_hash", status=401)
+    parsed["_hash"] = incoming_hash
     return parsed
+
+
+def _enforce_telegram_widget_freshness_and_replay(verified_data: dict[str, str]) -> None:
+    # Telegram includes an auth_date unix timestamp; treat old payloads as invalid to reduce replay window.
+    max_age = max(1, int(getattr(settings, "TELEGRAM_AUTH_MAX_AGE_SECONDS", 120)))
+    auth_date_raw = (verified_data.get("auth_date") or "").strip()
+    if not auth_date_raw:
+        raise APIError("Telegram auth_date is missing.", code="invalid_telegram_data", status=401)
+    try:
+        auth_ts = int(auth_date_raw)
+    except ValueError as exc:
+        raise APIError("Telegram auth_date is invalid.", code="invalid_telegram_data", status=401) from exc
+
+    now_ts = int(time.time())
+    # Allow small clock skew; reject future-dated payloads.
+    if auth_ts > now_ts + 30 or (now_ts - auth_ts) > max_age:
+        raise APIError("telegram_auth_stale", code="telegram_auth_stale", status=401)
+
+    incoming_hash = (verified_data.get("_hash") or "").strip()
+    if not incoming_hash:
+        raise APIError("Telegram auth hash is missing.", code="invalid_telegram_data", status=401)
+
+    # Replay protection: the Telegram signature is stable per payload; mark as seen for max_age seconds.
+    key = f"tg_auth_seen:{incoming_hash}"
+    try:
+        redis = get_redis_connection("default")
+        created = redis.set(key, "1", nx=True, ex=max_age)
+    except Exception as exc:
+        raise APIError("telegram_auth_unavailable", code="telegram_auth_unavailable", status=503) from exc
+    if not created:
+        raise APIError("telegram_auth_replay", code="telegram_auth_replay", status=401)
 
 
 def _extract_telegram_user(data: dict[str, str]) -> tuple[int, str | None, str]:
@@ -295,11 +453,20 @@ def register(request, payload: RegisterIn):
         fields["username"] = "Email or username is required."
         raise APIError("Missing identifier.", code="validation_error", fields=fields, status=422)
 
+    similarity_username = (username or (email.split("@", 1)[0] if email else "") or "user").strip() or "user"
+    password_validation_user = User(
+        username=similarity_username,
+        email=email or None,
+    )
     try:
-        validate_password(payload.password)
+        validate_password(payload.password, user=password_validation_user)
     except DjangoValidationError as exc:
-        fields["password"] = " ".join(exc.messages) if exc.messages else "Password is invalid."
-        raise APIError("Validation failed.", code="validation_error", fields=fields, status=422) from exc
+        raise APIError(
+            "Validation failed.",
+            code="password_invalid",
+            status=422,
+            fields={"password": _serialize_password_validation_errors(exc)},
+        ) from exc
 
     if email and User.objects.filter(email__iexact=email).exists():
         fields["email"] = "Email already exists."
@@ -318,13 +485,21 @@ def register(request, payload: RegisterIn):
     user.save()
 
     tokens, _token_record = _issue_tokens(user, request)
-    return {**tokens, "user": _serialize_user(user)}
+    response_payload: dict = {"access": tokens["access"], "user": _serialize_user_json(user)}
+    if getattr(settings, "AUTH_RETURN_REFRESH_IN_BODY", False):
+        response_payload["refresh"] = tokens["refresh"]
+    response = JsonResponse(response_payload, status=200)
+    _set_refresh_cookies(response, refresh_token=tokens["refresh"], refresh_jti=tokens["refresh_jti"])
+    return response
 
 
 @router.post("/login", response=AuthResponse)
 @rate_limit_rules(
     "auth_login",
-    [RateLimitRule(name="ip", rate=settings.AUTH_LOGIN_RATE, key_func=_rate_key_ip)],
+    [
+        RateLimitRule(name="ip", rate=settings.AUTH_LOGIN_RATE, key_func=_rate_key_ip),
+        RateLimitRule(name="identifier", rate=settings.AUTH_LOGIN_IDENTIFIER_RATE, key_func=_rate_key_login_identifier),
+    ],
     methods=("POST",),
 )
 @transaction.atomic
@@ -332,7 +507,12 @@ def login(request, payload: LoginIn):
     email, username = _normalize_identifier(payload.email, payload.username)
     user = _authenticate(email, username, payload.password)
     tokens, _token_record = _issue_tokens(user, request)
-    return {**tokens, "user": _serialize_user(user)}
+    response_payload: dict = {"access": tokens["access"], "user": _serialize_user_json(user)}
+    if getattr(settings, "AUTH_RETURN_REFRESH_IN_BODY", False):
+        response_payload["refresh"] = tokens["refresh"]
+    response = JsonResponse(response_payload, status=200)
+    _set_refresh_cookies(response, refresh_token=tokens["refresh"], refresh_jti=tokens["refresh_jti"])
+    return response
 
 
 @router.post("/refresh", response=RefreshResponse)
@@ -342,60 +522,97 @@ def login(request, payload: LoginIn):
     methods=("POST",),
 )
 @transaction.atomic
-def refresh_tokens(request, payload: RefreshIn):
+def refresh_tokens(request, payload: RefreshIn | None = None):
+    refresh_value = payload.refresh if payload and payload.refresh else None
+    if not refresh_value:
+        refresh_value = request.COOKIES.get(settings.AUTH_REFRESH_COOKIE_NAME) or None
+    if not refresh_value:
+        response = JsonResponse({"detail": "no_refresh", "code": "no_refresh", "fields": {}}, status=401)
+        _clear_refresh_cookies(response)
+        return response
+
     try:
-        decoded = decode_token(payload.refresh, expected_type="refresh")
-    except JWTDecodeError as exc:
-        raise APIError("Refresh token is invalid.", code="invalid_refresh", status=401) from exc
+        decoded = decode_token(refresh_value, expected_type="refresh")
+    except JWTDecodeError:
+        response = JsonResponse({"detail": "invalid_refresh", "code": "invalid_refresh", "fields": {}}, status=401)
+        _clear_refresh_cookies(response)
+        return response
 
     token_jti = decoded.get("jti")
     user_id = decoded.get("sub")
     if not token_jti or not user_id:
-        raise APIError("Refresh token is invalid.", code="invalid_refresh", status=401)
+        response = JsonResponse({"detail": "invalid_refresh", "code": "invalid_refresh", "fields": {}}, status=401)
+        _clear_refresh_cookies(response)
+        return response
 
     token_record = RefreshToken.objects.select_related("user").filter(jti=token_jti, user_id=user_id).first()
     if not token_record:
-        raise APIError("Refresh token is invalid.", code="invalid_refresh", status=401)
-    if token_record.token_hash != _hash_refresh_token(payload.refresh):
-        raise APIError("Refresh token is invalid.", code="invalid_refresh", status=401)
-    if token_record.is_revoked:
-        raise APIError("Refresh token is revoked.", code="revoked_refresh", status=401)
+        response = JsonResponse({"detail": "invalid_refresh", "code": "invalid_refresh", "fields": {}}, status=401)
+        _clear_refresh_cookies(response)
+        return response
+    if token_record.token_hash != _hash_refresh_token(refresh_value):
+        response = JsonResponse({"detail": "invalid_refresh", "code": "invalid_refresh", "fields": {}}, status=401)
+        _clear_refresh_cookies(response)
+        return response
+    if token_record.is_revoked or token_record.replaced_by_id is not None:
+        # Treat reuse of rotated/revoked refresh tokens as a compromise indicator.
+        RefreshToken.objects.filter(user_id=user_id, revoked_at__isnull=True).update(revoked_at=timezone.now())
+        response = JsonResponse({"detail": "refresh_reuse", "code": "refresh_reuse", "fields": {}}, status=401)
+        _clear_refresh_cookies(response)
+        return response
     if token_record.is_expired:
         _revoke_token(token_record)
-        raise APIError("Refresh token has expired.", code="expired_refresh", status=401)
+        response = JsonResponse({"detail": "expired_refresh", "code": "expired_refresh", "fields": {}}, status=401)
+        _clear_refresh_cookies(response)
+        return response
 
     user = token_record.user
     if not user.is_active:
         _revoke_token(token_record)
-        raise APIError("Account is disabled.", code="inactive_user", status=403)
+        response = JsonResponse({"detail": "inactive_user", "code": "inactive_user", "fields": {}}, status=403)
+        _clear_refresh_cookies(response)
+        return response
 
     new_tokens, new_record = _issue_tokens(user, request)
     _revoke_token(token_record, replaced_by=new_record)
-    return new_tokens
+
+    response_payload: dict = {"access": new_tokens["access"]}
+    if getattr(settings, "AUTH_RETURN_REFRESH_IN_BODY", False):
+        response_payload["refresh"] = new_tokens["refresh"]
+    response = JsonResponse(response_payload, status=200)
+    _set_refresh_cookies(response, refresh_token=new_tokens["refresh"], refresh_jti=new_tokens["refresh_jti"])
+    return response
 
 
 @router.post("/logout", auth=JWTAuth(), response={204: None})
 @transaction.atomic
 def logout(request, payload: LogoutIn | None = None):
-    refresh_value = payload.refresh if payload else None
-    if refresh_value:
+    rsid = (request.COOKIES.get(settings.AUTH_REFRESH_SESSION_COOKIE_NAME) or "").strip()
+    if rsid:
+        RefreshToken.objects.filter(user=request.auth, jti=rsid, revoked_at__isnull=True).update(revoked_at=timezone.now())
+    elif payload and payload.refresh:
         try:
-            decoded = decode_token(refresh_value, expected_type="refresh")
+            decoded = decode_token(payload.refresh, expected_type="refresh")
         except JWTDecodeError as exc:
             raise APIError("Refresh token is invalid.", code="invalid_refresh", status=401) from exc
         token_jti = decoded.get("jti")
-        token_hash = _hash_refresh_token(refresh_value)
+        token_hash = _hash_refresh_token(payload.refresh)
         RefreshToken.objects.filter(user=request.auth, jti=token_jti, token_hash=token_hash, revoked_at__isnull=True).update(
             revoked_at=timezone.now()
         )
-    return 204, None
+
+    response = JsonResponse({}, status=204)
+    _clear_refresh_cookies(response)
+    return response
 
 
 @router.post("/logout-all", auth=JWTAuth(), response={204: None})
 @transaction.atomic
 def logout_all(request):
     RefreshToken.objects.filter(user=request.auth, revoked_at__isnull=True).update(revoked_at=timezone.now())
-    return 204, None
+    response = JsonResponse({}, status=204)
+    _clear_refresh_cookies(response)
+    return response
 
 
 @router.get("/me", auth=JWTAuth(), response=AuthUserOut)
@@ -425,7 +642,12 @@ def telegram_magic_login(request, payload: TelegramMagicIn):
     telegram_id = link.telegram_id or user.telegram_id
     if telegram_id:
         send_login_success_message(int(telegram_id))
-    return {**tokens, "user": _serialize_user(user)}
+    response_payload: dict = {"access": tokens["access"], "user": _serialize_user_json(user)}
+    if getattr(settings, "AUTH_RETURN_REFRESH_IN_BODY", False):
+        response_payload["refresh"] = tokens["refresh"]
+    response = JsonResponse(response_payload, status=200)
+    _set_refresh_cookies(response, refresh_token=tokens["refresh"], refresh_jti=tokens["refresh_jti"])
+    return response
 
 
 @router.post("/telegram", response=AuthResponse)
@@ -437,6 +659,7 @@ def telegram_magic_login(request, payload: TelegramMagicIn):
 @transaction.atomic
 def telegram_login(request, payload: TelegramAuthIn):
     verified_data = _verify_telegram_hash(payload.initData)
+    _enforce_telegram_widget_freshness_and_replay(verified_data)
     telegram_id, telegram_username, display_name = _extract_telegram_user(verified_data)
 
     user = User.objects.filter(telegram_id=telegram_id).first()
@@ -463,13 +686,21 @@ def telegram_login(request, payload: TelegramAuthIn):
             user.save(update_fields=update_fields)
 
     tokens, _token_record = _issue_tokens(user, request)
-    return {**tokens, "user": _serialize_user(user)}
+    response_payload: dict = {"access": tokens["access"], "user": _serialize_user_json(user)}
+    if getattr(settings, "AUTH_RETURN_REFRESH_IN_BODY", False):
+        response_payload["refresh"] = tokens["refresh"]
+    response = JsonResponse(response_payload, status=200)
+    _set_refresh_cookies(response, refresh_token=tokens["refresh"], refresh_jti=tokens["refresh_jti"])
+    return response
 
 
 @router.post("/forgot-password", response=DetailResponse)
 @rate_limit_rules(
     "auth_forgot_password",
-    [RateLimitRule(name="ip", rate=settings.AUTH_FORGOT_RATE, key_func=_rate_key_ip)],
+    [
+        RateLimitRule(name="ip", rate=settings.AUTH_FORGOT_RATE, key_func=_rate_key_ip),
+        RateLimitRule(name="identifier", rate=settings.AUTH_FORGOT_IDENTIFIER_RATE, key_func=_rate_key_forgot_identifier),
+    ],
     methods=("POST",),
 )
 @transaction.atomic
@@ -524,4 +755,10 @@ def reset_password(request, payload: ResetPasswordIn):
     user.save(update_fields=["password"])
     reset_token.used_at = timezone.now()
     reset_token.save(update_fields=["used_at"])
-    return {"detail": "password_reset_ok"}
+
+    # Security: password reset is an account recovery event; revoke sessions and invalidate other reset tokens.
+    RefreshToken.objects.filter(user=user, revoked_at__isnull=True).update(revoked_at=timezone.now())
+    PasswordResetToken.objects.filter(user=user, used_at__isnull=True).exclude(id=reset_token.id).update(used_at=timezone.now())
+    response = JsonResponse({"detail": "password_reset_ok"}, status=200)
+    _clear_refresh_cookies(response)
+    return response

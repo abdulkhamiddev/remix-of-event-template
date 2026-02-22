@@ -5,11 +5,12 @@ import { componentTagger } from "lovable-tagger";
 
 export default defineConfig(({ mode }) => ({
   server: {
-    host: "::",
+    // Safer dev default: bind to localhost. Set VITE_DEV_HOST="::" if you explicitly need LAN/IPv6 binding.
+    host: process.env.VITE_DEV_HOST ?? "127.0.0.1",
     port: 8080,
 
-    // ✅ ngrok domainlar blok bo‘lmasin (dev-only)
-    allowedHosts: "all",
+    // If you need ngrok or a custom hostname, set VITE_ALLOWED_HOSTS="all" explicitly.
+    allowedHosts: process.env.VITE_ALLOWED_HOSTS?.trim() === "all" ? "all" : ["localhost", "127.0.0.1"],
 
     hmr: {
       overlay: false,
@@ -28,3 +29,4 @@ export default defineConfig(({ mode }) => ({
     },
   },
 }));
+

@@ -4,6 +4,8 @@ export type RecurringPattern = 'daily' | 'monthly' | 'yearly' | 'custom';
 
 export interface Task {
   id: string;
+  occurrenceId?: string | null;
+  occurrenceKey?: string | null;
   title: string;
   description: string;
   priority: Priority;

@@ -70,8 +70,9 @@ class MagicLinkLimitMetadata:
 
 
 def build_magic_link_url(token: str) -> str:
-    public_app_url = os.getenv("PUBLIC_APP_URL", "http://localhost:8080").rstrip("/")
-    return f"{public_app_url}/auth/telegram?token={token}"
+    public_app_url = settings.PUBLIC_APP_URL.rstrip("/")
+    # Use URL fragment to avoid leaking one-time tokens via Referer/logs/proxies.
+    return f"{public_app_url}/auth/telegram#token={token}"
 
 
 def get_magic_link_limit_metadata(token: str) -> MagicLinkLimitMetadata:

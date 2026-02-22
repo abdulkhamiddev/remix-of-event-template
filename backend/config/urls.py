@@ -32,7 +32,7 @@ def api_openapi_view(request, *args, **kwargs):
 
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    path(settings.ADMIN_URL.lstrip("/"), admin.site.urls),
     path("healthz", healthcheck),
     path("api/docs", api_docs_view),
     path("api/docs/", api_docs_view),

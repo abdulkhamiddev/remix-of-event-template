@@ -12,6 +12,7 @@ import { format } from 'date-fns';
 interface TaskCardProps {
   task: Task;
   showDate?: boolean;
+  onTaskMutated?: () => void | Promise<void>;
 }
 
 const formatSeconds = (totalSeconds: number) => {
@@ -26,7 +27,7 @@ const formatSeconds = (totalSeconds: number) => {
   return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 };
 
-export const TaskCard: React.FC<TaskCardProps> = ({ task, showDate = false }) => {
+export const TaskCard: React.FC<TaskCardProps> = ({ task, showDate = false, onTaskMutated }) => {
   const navigate = useNavigate();
   const { completeTask, startTimer, updateTimerRemaining } = useTaskContext();
   const [timerDisplay, setTimerDisplay] = useState<string>('');
@@ -81,6 +82,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, showDate = false }) =>
   const handleStartTimer = async () => {
     try {
       await startTimer(task.id, task.scheduledDate);
+      if (onTaskMutated) await onTaskMutated();
     } catch (error) {
       console.error("Failed to start timer:", error);
     }
@@ -89,6 +91,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, showDate = false }) =>
   const handleComplete = async () => {
     try {
       await completeTask(task.id, task.scheduledDate);
+      if (onTaskMutated) await onTaskMutated();
     } catch (error) {
       console.error("Failed to complete task:", error);
     }
@@ -197,7 +200,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, showDate = false }) =>
           variant="outline"
           size="sm"
           className="flex-1"
-          onClick={() => navigate(`/tasks/${task.id}`)}
+          onClick={() => navigate(`/tasks/${task.id}?date=${encodeURIComponent(task.scheduledDate)}`)}
         >
           <Eye className="h-4 w-4 mr-1" />
           View Detail

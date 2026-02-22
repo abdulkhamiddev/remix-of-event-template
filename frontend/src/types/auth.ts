@@ -7,7 +7,6 @@ export interface AuthUser {
 
 export interface AuthTokens {
   accessToken: string | null;
-  refreshToken: string | null;
 }
 
 export interface AuthState extends AuthTokens {

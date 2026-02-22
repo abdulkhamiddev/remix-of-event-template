@@ -3,35 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script>
-      (function () {
-        var STORAGE_KEY = "theme-mode";
-        var root = document.documentElement;
-        root.classList.add("no-theme-transition");
-
-        var mode = "light";
-        try {
-          var stored = window.localStorage.getItem(STORAGE_KEY);
-          if (stored === "light" || stored === "dark" || stored === "system") {
-            mode = stored;
-          } else {
-            window.localStorage.setItem(STORAGE_KEY, "light");
-          }
-        } catch (e) {}
-
-        var resolved = mode === "system"
-          ? (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-          : mode;
-
-        root.dataset.themeMode = mode;
-        root.classList.toggle("dark", resolved === "dark");
-        root.classList.toggle("light", resolved === "light");
-
-        requestAnimationFrame(function () {
-          root.classList.remove("no-theme-transition");
-        });
-      })();
-    </script>
+    <meta name="referrer" content="no-referrer" />
+    <script type="module" src="/src/preloadTheme.ts"></script>
     <!-- TODO: Set the document title to the name of your application -->
     <title>Task Flow</title>
     <meta name="description" content="" />

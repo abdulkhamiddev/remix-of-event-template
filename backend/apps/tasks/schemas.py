@@ -109,6 +109,8 @@ class TaskPatchIn(TaskBaseIn):
 
 class TaskOut(Schema):
     id: str
+    occurrenceId: str | None = None
+    occurrenceKey: str | None = None
     title: str
     description: str
     priority: Priority

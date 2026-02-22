@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { AppSettings, DEFAULT_SETTINGS } from '@/types/task.ts';
 import { apiFetch } from '@/lib/apiClient.ts';
-import { authStorage } from '@/lib/authStorage.ts';
+import { authSession } from '@/lib/authSession.ts';
 
 const THEME_MODE_KEY = 'theme-mode';
 const SETTINGS_KEY = 'todo-app-settings';
@@ -139,7 +139,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const patchPayload = buildSettingsPatch(updates);
     if (Object.keys(patchPayload).length === 0) return;
-    if (!authStorage.getState().accessToken) return;
+    if (!authSession.getState().accessToken) return;
     void apiFetch('/api/settings', {
       method: 'PATCH',
       body: JSON.stringify(patchPayload),
@@ -170,7 +170,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     let active = true;
 
     const syncFromBackend = async () => {
-      if (!authStorage.getState().accessToken) return;
+      if (!authSession.getState().accessToken) return;
       try {
         const payload = await apiFetch<SettingsApiPayload>('/api/settings');
         if (!active) return;
@@ -198,7 +198,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     void syncFromBackend();
-    const unsubscribe = authStorage.subscribe((state) => {
+    const unsubscribe = authSession.subscribe((state) => {
       if (!state.accessToken) return;
       void syncFromBackend();
     });

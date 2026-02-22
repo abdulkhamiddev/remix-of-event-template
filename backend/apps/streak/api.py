@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 
+from django.conf import settings
 from django.db.models import Count, Min, Q
 from django.utils import timezone
 from ninja import Query, Router
@@ -70,19 +71,28 @@ def _current_streak(user, min_daily_tasks: int, threshold_percent: int, today_ut
     if earliest_task_date is None:
         return 0
 
-    _ensure_occurrences(user, start_date=earliest_task_date, end_date=today_utc)
-    counts_map = _daily_counts(user, start_date=earliest_task_date, end_date=today_utc)
+    # Avoid materializing an unbounded date range in a single request.
+    max_days = max(1, int(getattr(settings, "MAX_TASK_RANGE_DAYS", 31)))
+    tasks = list(Task.objects.filter(owner=user).select_related("category").order_by("id"))
+    if not tasks:
+        return 0
 
     streak = 0
     cursor = today_utc
     while cursor >= earliest_task_date:
-        scheduled, completed = counts_map.get(cursor, (0, 0))
-        ratio = 0.0 if scheduled <= 0 else (completed / scheduled) * 100
-        qualified = scheduled >= min_daily_tasks and ratio >= threshold_percent
-        if not qualified:
-            break
-        streak += 1
-        cursor = cursor - timedelta(days=1)
+        window_end = cursor
+        window_start = max(earliest_task_date, cursor - timedelta(days=max_days - 1))
+        ensure_occurrences_for_tasks(tasks, range_start=window_start, range_end=window_end)
+        counts_map = _daily_counts(user, start_date=window_start, end_date=window_end)
+
+        while cursor >= window_start:
+            scheduled, completed = counts_map.get(cursor, (0, 0))
+            ratio = 0.0 if scheduled <= 0 else (completed / scheduled) * 100
+            qualified = scheduled >= min_daily_tasks and ratio >= threshold_percent
+            if not qualified:
+                return streak
+            streak += 1
+            cursor = cursor - timedelta(days=1)
     return streak
 
 
@@ -94,6 +104,15 @@ def streak_summary(
 ):
     if start > end:
         raise APIError("Validation failed.", code="validation_error", status=422, fields={"start": "start must be <= end."})
+    max_days = max(1, int(getattr(settings, "MAX_TASK_RANGE_DAYS", 31)))
+    days = (end - start).days + 1
+    if days > max_days:
+        raise APIError(
+            "range_too_large",
+            code="range_too_large",
+            status=422,
+            fields={"start": f"Range too large (max {max_days} days).", "end": f"Range too large (max {max_days} days)."},
+        )
 
     user = request.auth
     min_daily_tasks, threshold_percent = _load_settings(user)
@@ -147,4 +166,3 @@ def streak_today(request):
         "qualified": payload["qualified"],
         "currentStreak": _current_streak(user, min_daily_tasks, threshold_percent, today_utc=today_utc),
     }
-

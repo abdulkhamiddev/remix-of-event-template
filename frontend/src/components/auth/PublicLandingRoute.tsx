@@ -7,9 +7,9 @@ interface PublicLandingRouteProps {
 }
 
 export const PublicLandingRoute: React.FC<PublicLandingRouteProps> = ({ children }) => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isHydrated } = useAuth();
 
-  if (isAuthenticated) {
+  if (isHydrated && isAuthenticated) {
     return <Navigate to="/" replace />;
   }
 

@@ -1,4 +1,4 @@
-import { authStorage } from "@/lib/authStorage.ts";
+import { authSession } from "@/lib/authSession.ts";
 
 export class ApiError extends Error {
   status?: number;
@@ -65,23 +65,21 @@ const getErrorMessage = (data: unknown, fallback: string) => {
 
 const redirectToLogin = () => {
   if (typeof window === "undefined") return;
+  if (window.location.pathname === "/landing") return;
   if (window.location.pathname === "/login") return;
-  window.location.assign("/login");
+  window.location.assign("/landing");
 };
 
 const refreshTokens = async (): Promise<string | null> => {
-  const { refreshToken, currentUser } = authStorage.getState();
-  if (!refreshToken) return null;
-
   if (!refreshPromise) {
     refreshPromise = (async () => {
       try {
         const response = await fetch(buildUrl(REFRESH_ENDPOINT), {
           method: "POST",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ refresh: refreshToken }),
         });
 
         if (!response.ok) {
@@ -90,15 +88,10 @@ const refreshTokens = async (): Promise<string | null> => {
 
         const data = await parseResponse<Record<string, unknown>>(response);
         const newAccess = typeof data.access === "string" ? data.access : null;
-        const newRefresh = typeof data.refresh === "string" ? data.refresh : null;
 
         if (!newAccess) return null;
 
-        authStorage.setState({
-          accessToken: newAccess,
-          refreshToken: newRefresh ?? refreshToken,
-          currentUser,
-        });
+        authSession.updateState({ accessToken: newAccess });
 
         return newAccess;
       } catch (error) {
@@ -114,12 +107,13 @@ const refreshTokens = async (): Promise<string | null> => {
 };
 
 export const apiFetch = async <T,>(path: string, options: ApiFetchOptions = {}): Promise<T> => {
-  const accessToken = authStorage.getState().accessToken;
+  const accessToken = authSession.getState().accessToken;
   const headers = buildHeaders(options, accessToken);
 
   const response = await fetch(buildUrl(path), {
     ...options,
     headers,
+    credentials: options.credentials ?? "include",
   });
 
   if (response.status === 401 && options.auth !== false && !options.skipRefresh) {
@@ -129,6 +123,7 @@ export const apiFetch = async <T,>(path: string, options: ApiFetchOptions = {}):
       const retryResponse = await fetch(buildUrl(path), {
         ...options,
         headers: retryHeaders,
+        credentials: options.credentials ?? "include",
       });
 
       if (!retryResponse.ok) {
@@ -143,7 +138,7 @@ export const apiFetch = async <T,>(path: string, options: ApiFetchOptions = {}):
       return await parseResponse<T>(retryResponse);
     }
 
-    authStorage.clearState();
+    authSession.clearState();
     redirectToLogin();
     throw new ApiError("Unauthorized", 401);
   }

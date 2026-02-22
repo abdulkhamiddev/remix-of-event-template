@@ -1,8 +1,10 @@
 import calendar
 from datetime import UTC, date, datetime, timedelta
 
+from django.conf import settings
 from django.utils import timezone
 
+from apps.common.exceptions import APIError
 from apps.tasks.models import Task, TaskOccurrence
 
 
@@ -111,6 +113,12 @@ def ensure_occurrences_for_tasks(tasks: list[Task], range_start: date, range_end
     if not tasks or range_start > range_end:
         return
 
+    # Second-line defense: do not allow unbounded occurrence materialization even if a caller forgets to validate.
+    max_days = max(1, int(getattr(settings, "MAX_TASK_RANGE_DAYS", 31)))
+    days = (range_end - range_start).days + 1
+    if days > max_days:
+        raise APIError("range_too_large", code="range_too_large", status=422)
+
     task_ids = [task.id for task in tasks]
     existing_pairs = set(
         TaskOccurrence.objects.filter(task_id__in=task_ids, date__gte=range_start, date__lte=range_end).values_list(
@@ -165,4 +173,3 @@ def ensure_occurrence_for_task_date(task: Task, target_date: date) -> TaskOccurr
     if occurrence:
         return occurrence
     return TaskOccurrence.objects.create(task=task, date=target_date, status=TaskOccurrence.Status.PENDING)
-

@@ -1,15 +1,15 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { AuthState, AuthUser } from "@/types/auth.ts";
-import { authStorage, getInitialAuthState } from "@/lib/authStorage.ts";
+import { authSession } from "@/lib/authSession.ts";
 import { fetchCurrentUser, loginRequest, logoutAllRequest, logoutRequest, registerRequest } from "@/lib/authApi.ts";
 import { isNetworkError, refreshAccessToken } from "@/lib/apiClient.ts";
 import { getMockAuthState, isAuthMockEnabled, isMockAccessToken } from "@/lib/authMock.ts";
 
 interface AuthContextType {
   accessToken: string | null;
-  refreshToken: string | null;
   currentUser: AuthUser | null;
   isAuthenticated: boolean;
+  isHydrated: boolean;
   login: (identifier: string, password: string) => Promise<void>;
   register: (identifier: string, password: string) => Promise<void>;
   logout: (allDevices?: boolean) => Promise<void>;
@@ -19,10 +19,11 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [authState, setAuthState] = useState<AuthState>(() => getInitialAuthState());
+  const [authState, setAuthState] = useState<AuthState>(() => authSession.getState());
+  const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = authStorage.subscribe((state) => {
+    const unsubscribe = authSession.subscribe((state) => {
       setAuthState(state);
     });
 
@@ -32,21 +33,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let active = true;
 
+    const bootstrap = async () => {
+      // Restore session on reload using HttpOnly refresh cookie.
+      try {
+        if (isAuthMockEnabled()) {
+          return;
+        }
+
+        const access = await refreshAccessToken();
+        if (!access) return;
+
+        const user = await fetchCurrentUser();
+        if (active) {
+          authSession.updateState({ currentUser: user });
+        }
+      } catch (_error) {
+        // If /me fails after refresh, clear the session to avoid a broken partial-auth state.
+        if (active) authSession.clearState();
+      } finally {
+        if (active) setIsHydrated(true);
+      }
+    };
+
+    void bootstrap();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
     const hydrateUser = async () => {
       if (!authState.accessToken || authState.currentUser) return;
       if (isAuthMockEnabled() && isMockAccessToken(authState.accessToken)) {
-        authStorage.updateState({ currentUser: getMockAuthState().currentUser });
+        authSession.updateState({ currentUser: getMockAuthState().currentUser });
         return;
       }
 
       try {
         const user = await fetchCurrentUser();
         if (active) {
-          authStorage.updateState({ currentUser: user });
+          authSession.updateState({ currentUser: user });
         }
       } catch (error) {
         if (isAuthMockEnabled() && isNetworkError(error)) {
-          authStorage.updateState({ currentUser: getMockAuthState().currentUser });
+          authSession.updateState({ currentUser: getMockAuthState().currentUser });
         }
       }
     };
@@ -63,19 +95,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const result = await loginRequest(identifier, password);
       const nextState: AuthState = {
         accessToken: result.accessToken,
-        refreshToken: result.refreshToken,
         currentUser: result.currentUser,
       };
 
-      authStorage.setState(nextState);
+      authSession.setState(nextState);
 
       if (!result.currentUser && result.accessToken) {
         const user = await fetchCurrentUser();
-        authStorage.updateState({ currentUser: user });
+        authSession.updateState({ currentUser: user });
       }
     } catch (error) {
       if (isAuthMockEnabled() && isNetworkError(error)) {
-        authStorage.setState(getMockAuthState());
+        authSession.setState(getMockAuthState());
         return;
       }
 
@@ -87,19 +118,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const result = await registerRequest(identifier, password);
       if (result.accessToken) {
-        authStorage.setState(result);
+        authSession.setState(result);
       } else {
         const loginResult = await loginRequest(identifier, password);
-        authStorage.setState(loginResult);
+        authSession.setState(loginResult);
       }
 
-      if (!authStorage.getState().currentUser) {
+      if (!authSession.getState().currentUser) {
         const user = await fetchCurrentUser();
-        authStorage.updateState({ currentUser: user });
+        authSession.updateState({ currentUser: user });
       }
     } catch (error) {
       if (isAuthMockEnabled() && isNetworkError(error)) {
-        authStorage.setState(getMockAuthState());
+        authSession.setState(getMockAuthState());
         return;
       }
 
@@ -108,17 +139,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const logout = useCallback(async (allDevices = false) => {
-    const { refreshToken } = authStorage.getState();
     try {
       if (allDevices) {
         await logoutAllRequest();
       } else {
-        await logoutRequest(refreshToken);
+        await logoutRequest();
       }
     } catch (_error) {
       // Clear local auth state even if server-side token revoke fails.
     } finally {
-      authStorage.clearState();
+      authSession.clearState();
       if (typeof window !== "undefined") {
         window.location.replace("/landing");
       }
@@ -132,15 +162,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value = useMemo<AuthContextType>(
     () => ({
       accessToken: authState.accessToken,
-      refreshToken: authState.refreshToken,
       currentUser: authState.currentUser,
       isAuthenticated: Boolean(authState.accessToken),
+      isHydrated,
       login,
       register,
       logout,
       refresh,
     }),
-    [authState.accessToken, authState.refreshToken, authState.currentUser, login, register, logout, refresh]
+    [authState.accessToken, authState.currentUser, isHydrated, login, register, logout, refresh]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

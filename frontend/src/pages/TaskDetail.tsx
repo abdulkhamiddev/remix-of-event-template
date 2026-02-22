@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Edit2, Trash2, Play, Check, Clock, Calendar, Repeat,
   Timer, AlertTriangle, Tag, CheckCircle
@@ -11,6 +11,8 @@ import { Progress } from '@/components/ui/progress.tsx';
 import { cn } from '@/lib/utils.ts';
 import { format, formatDistanceToNow, parseISO, differenceInSeconds } from 'date-fns';
 import { toast } from '@/hooks/use-toast.ts';
+import { apiFetch } from '@/lib/apiClient.ts';
+import type { Task } from '@/types/task.ts';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,23 +30,64 @@ const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
 const TaskDetail: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { getTaskById, deleteTask, completeTask, startTimer, updateTimerRemaining } = useTaskContext();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { deleteTask, refreshTasks } = useTaskContext();
 
-  const task = getTaskById(id || '');
+  const [task, setTask] = useState<Task | null>(null);
+  const [isLoadingTask, setIsLoadingTask] = useState<boolean>(true);
   const [timerDisplay, setTimerDisplay] = useState<string>('');
   const [timerProgress, setTimerProgress] = useState<number>(0);
   const [deadlineCountdown, setDeadlineCountdown] = useState<string>('');
 
-  // Timer logic
+  const occurrenceDate = searchParams.get('date');
+
+  const loadTaskOccurrence = useCallback(async () => {
+    if (!id) {
+      setTask(null);
+      setIsLoadingTask(false);
+      return;
+    }
+
+    setIsLoadingTask(true);
+    try {
+      let targetDate = occurrenceDate;
+      if (!targetDate) {
+        const fallbackTask = await apiFetch<Task>(`/api/tasks/${id}`);
+        targetDate = fallbackTask.scheduledDate;
+        setSearchParams({ date: targetDate }, { replace: true });
+      }
+
+      const occurrence = await apiFetch<Task>(
+        `/api/tasks/occurrence?task_id=${encodeURIComponent(id)}&date=${encodeURIComponent(targetDate)}`
+      );
+      setTask(occurrence);
+    } catch (_error) {
+      setTask(null);
+    } finally {
+      setIsLoadingTask(false);
+    }
+  }, [id, occurrenceDate, setSearchParams]);
+
+  useEffect(() => {
+    void loadTaskOccurrence();
+  }, [loadTaskOccurrence]);
+
   useEffect(() => {
     if (!task?.hasTimer || !task.timerStartedAt || task.status === 'completed') return;
+
+    const taskId = task.id;
+    const scheduledDate = task.scheduledDate;
+    const timerDuration = task.timerDuration;
 
     const updateTimer = () => {
       const startTime = new Date(task.timerStartedAt!).getTime();
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const remaining = Math.max(0, task.timerDuration - elapsed);
+      const remaining = Math.max(0, timerDuration - elapsed);
 
-      updateTimerRemaining(task.id, remaining);
+      setTask((prev) => {
+        if (!prev || prev.id !== taskId || prev.scheduledDate !== scheduledDate) return prev;
+        return { ...prev, timerRemaining: remaining };
+      });
 
       const hours = Math.floor(remaining / 3600);
       const minutes = Math.floor((remaining % 3600) / 60);
@@ -55,15 +98,14 @@ const TaskDetail: React.FC = () => {
       } else {
         setTimerDisplay(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
       }
-      setTimerProgress(((task.timerDuration - remaining) / task.timerDuration) * 100);
+      setTimerProgress(timerDuration > 0 ? ((timerDuration - remaining) / timerDuration) * 100 : 0);
     };
 
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [task, updateTimerRemaining]);
+  }, [task?.id, task?.scheduledDate, task?.hasTimer, task?.timerStartedAt, task?.status, task?.timerDuration]);
 
-  // Deadline countdown
   useEffect(() => {
     if (!task?.hasDeadline || !task.deadlineTime || task.status !== 'pending') return;
 
@@ -96,18 +138,10 @@ const TaskDetail: React.FC = () => {
     updateDeadline();
     const interval = setInterval(updateDeadline, 1000);
     return () => clearInterval(interval);
-  }, [task]);
-
-  if (!task) {
-    return (
-      <div className="text-center py-12">
-        <h2 className="text-xl font-semibold text-foreground mb-2">Task not found</h2>
-        <Button onClick={() => navigate('/tasks')}>Back to Tasks</Button>
-      </div>
-    );
-  }
+  }, [task?.hasDeadline, task?.deadlineTime, task?.status, task?.scheduledDate]);
 
   const handleDelete = async () => {
+    if (!task) return;
     try {
       await deleteTask(task.id);
       toast({ title: 'Task deleted' });
@@ -118,8 +152,14 @@ const TaskDetail: React.FC = () => {
   };
 
   const handleComplete = async () => {
+    if (!task) return;
     try {
-      await completeTask(task.id, task.scheduledDate);
+      const updated = await apiFetch<Task>(`/api/tasks/${task.id}/complete?date=${encodeURIComponent(task.scheduledDate)}`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      setTask(updated);
+      await refreshTasks();
       toast({ title: 'Task completed', description: 'Great job!' });
     } catch (_error) {
       toast({ title: 'Task error', description: 'Could not complete task.', variant: 'destructive' });
@@ -127,13 +167,37 @@ const TaskDetail: React.FC = () => {
   };
 
   const handleStartTimer = async () => {
+    if (!task) return;
     try {
-      await startTimer(task.id, task.scheduledDate);
+      const updated = await apiFetch<Task>(`/api/tasks/${task.id}/start-timer?date=${encodeURIComponent(task.scheduledDate)}`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      setTask(updated);
+      await refreshTasks();
       toast({ title: 'Timer started', description: 'Good luck!' });
     } catch (_error) {
       toast({ title: 'Task error', description: 'Could not start timer.', variant: 'destructive' });
     }
   };
+
+  if (isLoadingTask) {
+    return (
+      <div className="text-center py-12">
+        <h2 className="text-xl font-semibold text-foreground mb-2">Loading task...</h2>
+        <Button onClick={() => navigate('/tasks')}>Back to Tasks</Button>
+      </div>
+    );
+  }
+
+  if (!task) {
+    return (
+      <div className="text-center py-12">
+        <h2 className="text-xl font-semibold text-foreground mb-2">Task not found</h2>
+        <Button onClick={() => navigate('/tasks')}>Back to Tasks</Button>
+      </div>
+    );
+  }
 
   const isOverdue = task.status === 'overdue';
   const isCompleted = task.status === 'completed';
@@ -194,8 +258,8 @@ const TaskDetail: React.FC = () => {
         <div className="glass-card rounded-xl p-4 border-destructive/30 bg-destructive/10 flex items-center gap-3">
           <AlertTriangle className="h-5 w-5 text-destructive" />
           <div>
-            <p className="font-medium text-destructive">Overdue – Locked</p>
-            <p className="text-sm text-muted-foreground">This task is past its deadline and cannot be edited or deleted.</p>
+            <p className="font-medium text-destructive">Overdue - Locked</p>
+            <p className="text-sm text-muted-foreground">This task occurrence is past its deadline and cannot be edited or deleted.</p>
           </div>
         </div>
       )}
@@ -321,7 +385,7 @@ const TaskDetail: React.FC = () => {
 
           {task.recurringPattern === 'custom' && task.customDays.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              {task.customDays.sort().map((day) => (
+              {[...task.customDays].sort().map((day) => (
                 <Badge key={day} variant="secondary">
                   {WEEKDAYS[day]}
                 </Badge>

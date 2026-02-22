@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime
 
+from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 from ninja import Query, Router
@@ -87,6 +88,8 @@ def _serialize_task_occurrence(task: Task, occurrence: TaskOccurrence, now: date
 
     return {
         "id": str(task.id),
+        "occurrenceId": str(occurrence.id),
+        "occurrenceKey": f"{task.id}:{occurrence.date.isoformat()}",
         "title": task.title,
         "description": task.description or "",
         "priority": task.priority,
@@ -203,6 +206,19 @@ def _validate_range(start: date | None, end: date | None) -> tuple[date | None, 
         )
     if start is not None and end is not None and start > end:
         raise APIError("Validation failed.", code="validation_error", status=422, fields={"start": "start must be <= end."})
+    if start is not None and end is not None:
+        max_days = max(1, int(getattr(settings, "MAX_TASK_RANGE_DAYS", 31)))
+        days = (end - start).days + 1
+        if days > max_days:
+            raise APIError(
+                "range_too_large",
+                code="range_too_large",
+                status=422,
+                fields={
+                    "start": f"Range too large (max {max_days} days).",
+                    "end": f"Range too large (max {max_days} days).",
+                },
+            )
     return start, end
 
 
@@ -212,7 +228,56 @@ def _status_matches(status_filter: str | None, payload_status: str) -> bool:
     return payload_status == status_filter
 
 
+def _validate_status_filter(status: str | None) -> None:
+    if status and status not in {"pending", "completed", "overdue"}:
+        raise APIError("Validation failed.", code="validation_error", status=422, fields={"status": "Invalid status."})
+
+
+def _list_occurrence_items(
+    tasks: list[Task],
+    *,
+    range_start: date,
+    range_end: date,
+    now: datetime,
+    status: str | None = None,
+    due_from: date | None = None,
+    due_to: date | None = None,
+) -> list[dict]:
+    if not tasks:
+        return []
+
+    ensure_occurrences_for_tasks(tasks, range_start=range_start, range_end=range_end)
+    occurrences = list(
+        TaskOccurrence.objects.filter(task_id__in=[task.id for task in tasks], date__gte=range_start, date__lte=range_end)
+        .select_related("task", "task__category")
+        .order_by("date", "task_id")
+    )
+
+    items: list[dict] = []
+    for occurrence in occurrences:
+        task = occurrence.task
+        due_dt = occurrence_due_datetime(task, occurrence.date)
+        if due_from is not None and (due_dt is None or due_dt.date() < due_from):
+            continue
+        if due_to is not None and (due_dt is None or due_dt.date() > due_to):
+            continue
+
+        payload = _serialize_task_occurrence(task, occurrence, now=now)
+        if not _status_matches(status, payload["status"]):
+            continue
+        items.append(payload)
+
+    items.sort(key=lambda item: (item["scheduledDate"], item["createdAt"], item["id"]))
+    return items
+
+
 def _resolve_target_date(task: Task, target_date: date | None) -> date:
+    if task.is_recurring and target_date is None:
+        raise APIError(
+            "occurrence_date_required",
+            code="occurrence_date_required",
+            status=422,
+        )
     resolved = target_date or task.scheduled_date
     if not task_occurs_on_date(task, resolved):
         raise APIError(
@@ -248,8 +313,7 @@ def list_tasks(
     ordering: str | None = Query(None),
 ):
     _validate_range(start, end)
-    if status and status not in {"pending", "completed", "overdue"}:
-        raise APIError("Validation failed.", code="validation_error", status=422, fields={"status": "Invalid status."})
+    _validate_status_filter(status)
     now = timezone.now()
 
     queryset = Task.objects.filter(owner=request.auth).select_related("category")
@@ -262,34 +326,15 @@ def list_tasks(
 
     if start is not None and end is not None:
         tasks = list(queryset.order_by("scheduled_date", "id"))
-        if not tasks:
-            return {
-                "items": [],
-                "pagination": {"page": 1, "pageSize": 0, "total": 0, "totalPages": 0},
-            }
-
-        ensure_occurrences_for_tasks(tasks, range_start=start, range_end=end)
-        occurrences = list(
-            TaskOccurrence.objects.filter(task_id__in=[task.id for task in tasks], date__gte=start, date__lte=end)
-            .select_related("task", "task__category")
-            .order_by("date", "task_id")
+        items = _list_occurrence_items(
+            tasks,
+            range_start=start,
+            range_end=end,
+            now=now,
+            status=status,
+            due_from=dueFrom,
+            due_to=dueTo,
         )
-
-        items: list[dict] = []
-        for occurrence in occurrences:
-            task = occurrence.task
-            due_dt = occurrence_due_datetime(task, occurrence.date)
-            if dueFrom is not None and (due_dt is None or due_dt.date() < dueFrom):
-                continue
-            if dueTo is not None and (due_dt is None or due_dt.date() > dueTo):
-                continue
-
-            payload = _serialize_task_occurrence(task, occurrence, now=now)
-            if not _status_matches(status, payload["status"]):
-                continue
-            items.append(payload)
-
-        items.sort(key=lambda item: (item["scheduledDate"], item["createdAt"], item["id"]))
         total = len(items)
         return {
             "items": items,
@@ -318,9 +363,6 @@ def list_tasks(
     if not tasks:
         return {"items": [], "pagination": pagination}
 
-    min_date = min(task.scheduled_date for task in tasks)
-    max_date = max(task.scheduled_date for task in tasks)
-    ensure_occurrences_for_tasks(tasks, range_start=min_date, range_end=max_date)
     baseline_occurrences = {
         (occurrence.task_id, occurrence.date): occurrence
         for occurrence in TaskOccurrence.objects.filter(
@@ -347,6 +389,30 @@ def list_tasks(
     return {"items": items, "pagination": pagination}
 
 
+@router.get("/tasks/today", response=TaskListOut)
+def list_tasks_today(
+    request,
+    date_value: date | None = Query(None, alias="date"),
+    status: str | None = Query(None),
+):
+    _validate_status_filter(status)
+    now = timezone.now()
+    target_date = date_value or now.astimezone(UTC).date()
+    tasks = list(Task.objects.filter(owner=request.auth).select_related("category").order_by("scheduled_date", "id"))
+    items = _list_occurrence_items(
+        tasks,
+        range_start=target_date,
+        range_end=target_date,
+        now=now,
+        status=status,
+    )
+    total = len(items)
+    return {
+        "items": items,
+        "pagination": {"page": 1, "pageSize": total, "total": total, "totalPages": 1 if total else 0},
+    }
+
+
 @router.post("/tasks", response=TaskOut)
 def create_task(request, payload: TaskCreateIn):
     _ensure_default_category(request.auth)
@@ -365,6 +431,18 @@ def create_task(request, payload: TaskCreateIn):
         occurrence.timer_seconds = task.timer_total_seconds
         occurrence.timer_running_since = task.timer_running_since
         occurrence.save(update_fields=["status", "completed_at", "timer_seconds", "timer_running_since"])
+    return _serialize_task_occurrence(task, occurrence)
+
+
+@router.get("/tasks/occurrence", response=TaskOut)
+def get_task_occurrence(
+    request,
+    task_id: int = Query(..., alias="task_id"),
+    occurrence_date: date = Query(..., alias="date"),
+):
+    task = _get_owned_task(request.auth, task_id)
+    target_date = _resolve_target_date(task, occurrence_date)
+    occurrence = ensure_occurrence_for_task_date(task, target_date)
     return _serialize_task_occurrence(task, occurrence)
 
 

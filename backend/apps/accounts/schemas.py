@@ -27,7 +27,9 @@ class LoginIn(Schema):
 
 
 class RefreshIn(Schema):
-    refresh: str
+    # Legacy: allow refresh in JSON for older clients.
+    # Cookie-based refresh clients should omit this field.
+    refresh: str | None = None
 
 
 class LogoutIn(Schema):
@@ -60,13 +62,14 @@ class AuthUserOut(Schema):
 
 class AuthResponse(Schema):
     access: str
-    refresh: str
+    # Cookie-based refresh: refresh token is not returned in JSON.
+    refresh: str | None = None
     user: AuthUserOut
 
 
 class RefreshResponse(Schema):
     access: str
-    refresh: str
+    refresh: str | None = None
 
 
 class DetailResponse(Schema):

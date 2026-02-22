@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button.tsx";
 import { telegramMagicLoginRequest } from "@/lib/authApi.ts";
-import { authStorage } from "@/lib/authStorage.ts";
+import { authSession } from "@/lib/authSession.ts";
 import { ApiError } from "@/lib/apiClient.ts";
 
 const TelegramAuthCallback: React.FC = () => {
@@ -15,17 +15,29 @@ const TelegramAuthCallback: React.FC = () => {
     if (handledRef.current) return;
     handledRef.current = true;
 
-    const params = new URLSearchParams(location.search);
-    const token = params.get("token");
+    const hashParams = new URLSearchParams((location.hash || "").replace(/^#/, ""));
+    const queryParams = new URLSearchParams(location.search);
+    const token = hashParams.get("token") || queryParams.get("token");
     if (!token) {
       setError("Login token is missing.");
       return;
     }
 
+    // Scrub token from URL immediately (prevents Referer/history leakage).
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("token");
+      url.hash = "";
+      const scrubbed = url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : "");
+      window.history.replaceState({}, document.title, scrubbed);
+    } catch {
+      // Ignore URL parsing failures; token still handled in-memory.
+    }
+
     const run = async () => {
       try {
         const nextState = await telegramMagicLoginRequest(token);
-        authStorage.setState(nextState);
+        authSession.setState(nextState);
         navigate("/", { replace: true });
       } catch (requestError) {
         if (requestError instanceof ApiError) {
@@ -37,7 +49,7 @@ const TelegramAuthCallback: React.FC = () => {
     };
 
     void run();
-  }, [location.search, navigate]);
+  }, [location.hash, location.search, navigate]);
 
   if (!error) {
     return (

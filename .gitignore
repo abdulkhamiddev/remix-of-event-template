@@ -1,6 +1,12 @@
 .DS_Store
 node_modules
 backend/.env
+backend/db.sqlite3
+backend/*.sqlite3
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+!backend/.env.example
 deploy/env/.env.backend
 deploy/env/.env.db
 deploy/env/.env.edge

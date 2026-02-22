@@ -3,9 +3,7 @@ import type { AuthState, AuthUser } from "@/types/auth.ts";
 
 interface AuthResponse {
   access?: string;
-  refresh?: string;
   accessToken?: string;
-  refreshToken?: string;
   user?: AuthUser | null;
 }
 
@@ -20,7 +18,6 @@ const buildIdentifierPayload = (identifier: string, password: string) => {
 
 const normalizeAuthResponse = (data: AuthResponse): AuthState => ({
   accessToken: data.access ?? data.accessToken ?? null,
-  refreshToken: data.refresh ?? data.refreshToken ?? null,
   currentUser: data.user ?? null,
 });
 
@@ -58,12 +55,10 @@ export const telegramMagicLoginRequest = async (token: string): Promise<AuthStat
   return normalizeAuthResponse(data);
 };
 
-export const logoutRequest = async (refreshToken?: string | null): Promise<void> => {
+export const logoutRequest = async (): Promise<void> => {
   await apiFetch<void>("/api/auth/logout", {
     method: "POST",
-    body: JSON.stringify({
-      refresh: refreshToken ?? null,
-    }),
+    body: JSON.stringify({}),
   });
 };
 

@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { useTaskContext } from '@/contexts/TaskContext.tsx';
@@ -85,6 +85,13 @@ const CalendarPage: React.FC = () => {
     const end = endOfWeek(currentWeekStart);
     return eachDayOfInterval({ start, end });
   }, [currentWeekStart]);
+
+  const reloadRangeTasks = useCallback(async () => {
+    const rangeStart = viewMode === 'month' ? startOfMonth(currentMonth) : startOfWeek(currentWeekStart);
+    const rangeEnd = viewMode === 'month' ? endOfMonth(currentMonth) : endOfWeek(currentWeekStart);
+    const items = await fetchTasksInRange(rangeStart, rangeEnd);
+    setRangeTasks(items);
+  }, [viewMode, currentMonth, currentWeekStart, fetchTasksInRange]);
 
   useEffect(() => {
     let active = true;
@@ -345,7 +352,11 @@ const CalendarPage: React.FC = () => {
             selectedTasks.length > 0 ? (
               <div className="space-y-3">
                 {selectedTasks.map((task) => (
-                  <TaskCard key={`${task.id}-${task.scheduledDate}`} task={task} />
+                  <TaskCard
+                    key={task.occurrenceKey ?? `${task.id}-${task.scheduledDate}`}
+                    task={task}
+                    onTaskMutated={reloadRangeTasks}
+                  />
                 ))}
               </div>
             ) : (
@@ -375,3 +386,4 @@ const CalendarPage: React.FC = () => {
 };
 
 export default CalendarPage;
+

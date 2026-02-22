@@ -9,7 +9,6 @@ const MOCK_USER: AuthUser = {
 
 const MOCK_TOKENS = {
   accessToken: "mock-access-token",
-  refreshToken: "mock-refresh-token",
 };
 
 export const isAuthMockEnabled = () => import.meta.env.VITE_AUTH_MOCK === "true";

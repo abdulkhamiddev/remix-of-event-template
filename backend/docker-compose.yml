@@ -9,7 +9,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-taskflow}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taskflow}
     ports:
-      - "5432:5432"
+      # Dev convenience only. Bind to localhost to avoid exposing Postgres to the LAN.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -26,7 +27,8 @@ services:
     volumes:
       - .:/app
     ports:
-      - "8000:8000"
+      # Dev convenience only. Bind to localhost; use a real reverse-proxy + TLS in production.
+      - "127.0.0.1:8000:8000"
     depends_on:
       - postgres
     command: python manage.py runserver 0.0.0.0:8000

@@ -15,7 +15,8 @@ def hash_reset_token(token: str) -> str:
 
 def build_reset_link(raw_token: str) -> str:
     base_url = settings.PUBLIC_APP_URL.rstrip("/")
-    return f"{base_url}/reset-password?token={raw_token}"
+    # Use URL fragment to avoid leaking one-time tokens via Referer/logs/proxies.
+    return f"{base_url}/reset-password#token={raw_token}"
 
 
 def send_reset_email(user, link: str) -> None:
