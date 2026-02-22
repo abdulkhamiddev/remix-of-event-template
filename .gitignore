@@ -10,6 +10,7 @@ frontend/.env.*
 deploy/env/.env.backend
 deploy/env/.env.db
 deploy/env/.env.edge
+deploy/backend.env.prod
 
 backend/.venv
 __pycache__/
