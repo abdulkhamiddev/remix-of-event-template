@@ -1,102 +1,97 @@
-# Railway Deploy (Frontend + Backend + Bot)
+# Railway Deploy (Git Repo, Railway Domains Only)
 
-This repository is deployed as a Railway monorepo with 3 services:
+Bu loyiha Railway uchun tayyorlangan: `frontend + backend + bot`.
+Custom domain shart emas, Railway bergan `*.up.railway.app` domenlari bilan ishlaydi.
 
-- `frontend` (Web)
-- `backend` (Web)
-- `bot` (Worker)
+## 1) Bir marta qilinadigan setup
 
-## 1) Create services in Railway
+Railway project oching va shu Git repoga ulang, keyin 3 ta service yarating:
 
-Create one Railway project and connect this Git repository, then add:
+1. `frontend` (Root Directory: `frontend`)
+2. `backend` (Root Directory: `backend`)
+3. `bot` (Root Directory: `backend`)
 
-1. Service `frontend` with **Root Directory**: `frontend`
-2. Service `backend` with **Root Directory**: `backend`
-3. Service `bot` with **Root Directory**: `backend`
-4. Add Railway `Postgres` plugin
-5. Add Railway `Redis` plugin
+Pluginlar:
 
-Link both plugins to `backend` and `bot`.
+4. `Postgres`
+5. `Redis`
 
-## 2) Service commands
+`Postgres` va `Redis`ni `backend` hamda `bot` service'lariga link qiling.
 
-### `frontend` service
+## 2) Start/build commandlar
 
-- Build Command: `npm ci && npm run build`
-- Start Command: `npm run start`
+Bu repoda commandlar koddan olinadi:
 
-### `backend` service
+- `backend/Procfile` -> `web: sh start.sh`
+- `frontend/Procfile` -> `web: npm run start`
 
-- Build Command: `pip install -r requirements.txt`
-- Start Command: `APP_ROLE=web sh start.sh`
+`backend/start.sh` rolega qarab ishga tushadi:
 
-### `bot` service
+- `APP_ROLE=web` -> Django + Gunicorn
+- `APP_ROLE=bot` -> Telegram bot worker
 
-- Build Command: `pip install -r requirements.txt`
-- Start Command: `APP_ROLE=bot sh start.sh`
+Shu sabab `bot` service'da `APP_ROLE=bot` qo'yish kifoya.
 
-## 3) Variables for `backend`
+## 3) Railway Variables (copy/paste)
 
-Set these in Railway Variables for `backend`:
+### `backend` service variables
 
 ```env
+APP_ROLE=web
 DJANGO_DEBUG=false
-DJANGO_SECRET_KEY=<generate-strong-secret>
-DATABASE_URL=<from-linked-railway-postgres>
-REDIS_URL=<from-linked-railway-redis>
-DJANGO_ALLOWED_HOSTS=api.your-domain.com
-PUBLIC_APP_URL=https://app.your-domain.com
-CORS_ALLOWED_ORIGINS=https://app.your-domain.com
-CSRF_TRUSTED_ORIGINS=https://app.your-domain.com,https://api.your-domain.com
+DJANGO_SECRET_KEY=<strong-secret>
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=${{Redis.REDIS_URL}}
+DJANGO_ALLOWED_HOSTS=${{RAILWAY_PUBLIC_DOMAIN}}
+PUBLIC_APP_URL=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
+CORS_ALLOWED_ORIGINS=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
+CSRF_TRUSTED_ORIGINS=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
 CORS_ALLOW_CREDENTIALS=true
 AUTH_COOKIE_SECURE=true
-AUTH_COOKIE_SAMESITE=Strict
+AUTH_COOKIE_SAMESITE=None
 AUTH_RETURN_REFRESH_IN_BODY=false
 ADMIN_URL=/admin-very-random/
-TELEGRAM_BOT_TOKEN=<your-telegram-bot-token>
-SENDGRID_API_KEY=<optional-sendgrid-key>
-DEFAULT_FROM_EMAIL=TaskFlow <no-reply@your-domain.com>
+TELEGRAM_BOT_TOKEN=<telegram-token>
 WEB_CONCURRENCY=2
 GUNICORN_TIMEOUT=60
 ```
 
-## 4) Variables for `bot`
-
-Set these in Railway Variables for `bot`:
+### `bot` service variables
 
 ```env
+APP_ROLE=bot
 DJANGO_SETTINGS_MODULE=config.settings
 DJANGO_DEBUG=false
 DJANGO_SECRET_KEY=<same-as-backend>
-DATABASE_URL=<from-linked-railway-postgres>
-REDIS_URL=<from-linked-railway-redis>
-PUBLIC_APP_URL=https://app.your-domain.com
-TELEGRAM_BOT_TOKEN=<same-bot-token>
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=${{Redis.REDIS_URL}}
+PUBLIC_APP_URL=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
+TELEGRAM_BOT_TOKEN=<same-telegram-token>
 ```
 
-## 5) Variables for `frontend`
-
-Set these in Railway Variables for `frontend`:
+### `frontend` service variables
 
 ```env
-VITE_API_URL=https://api.your-domain.com
+VITE_API_URL=https://${{backend.RAILWAY_PUBLIC_DOMAIN}}
 VITE_AUTH_MOCK=false
-VITE_TELEGRAM_BOT_USERNAME=your_bot_username
+VITE_TELEGRAM_BOT_USERNAME=<your_bot_username>
 ```
 
-## 6) Domains
+## 4) Deploy flow
 
-Attach custom domains:
+1. Repo push qiling.
+2. Railway auto deploy qiladi.
+3. `backend` service'da public networking yoqilgan bo'lsin (domain beriladi).
+4. `frontend` service'da ham public networking yoqilgan bo'lsin.
+5. `bot` worker'da public domain shart emas.
 
-- `frontend` -> `app.your-domain.com`
-- `backend` -> `api.your-domain.com`
+## 5) Tekshiruv
 
-Then redeploy all services.
+- Backend health: `https://<backend>.up.railway.app/healthz`
+- Frontend ochilishi: `https://<frontend>.up.railway.app`
+- Bot: Railway log'da polling boshlangani ko'rinishi kerak.
 
-## 7) Health checks
+## 6) Eslatma
 
-After deploy:
-
-- Backend: `GET https://api.your-domain.com/healthz` should return `{"status":"ok"}`
-- Frontend: open `https://app.your-domain.com`
-- Bot: check logs and run `/start login` in Telegram
+- `AUTH_COOKIE_SAMESITE=None` Railway default domenlarda (`frontend` va `backend` alohida origin) refresh-cookie ishlashi uchun kerak.
+- `frontend` va `backend` domenlari deploydan keyin Railway tomonidan beriladi; yuqoridagi `${{...}}` reference'lar orqali avtomatik ulanadi.
